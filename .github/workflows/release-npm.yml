@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
-      contents: read
+      contents: write
       id-token: write
     steps:
       - name: Checkout
@@ -26,11 +26,34 @@ jobs:
       - name: Install dependencies
         run: npm install
 
+      - name: Resolve release metadata
+        id: release_meta
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          if [[ "${GITHUB_REF_TYPE:-}" == "tag" && "${GITHUB_REF_NAME:-}" == v* ]]; then
+            tag="${GITHUB_REF_NAME}"
+          else
+            tag="v${version}"
+          fi
+
+          if [[ "${version}" == *-* ]]; then
+            dist_tag="preview"
+            prerelease="true"
+          else
+            dist_tag="latest"
+            prerelease="false"
+          fi
+
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+          echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
+          echo "dist_tag=${dist_tag}" >> "${GITHUB_OUTPUT}"
+          echo "prerelease=${prerelease}" >> "${GITHUB_OUTPUT}"
+
       - name: Ensure tag matches package version
         if: startsWith(github.ref, 'refs/tags/v')
         run: |
           expected="${GITHUB_REF_NAME#v}"
-          actual="$(node -p "require('./package.json').version")"
+          actual="${{ steps.release_meta.outputs.version }}"
           if [[ "${expected}" != "${actual}" ]]; then
             echo "Tag version (${expected}) does not match package.json version (${actual})." >&2
             exit 1
@@ -39,17 +62,38 @@ jobs:
       - name: Run quality checks
         run: npm run quality
 
-      - name: Resolve npm dist-tag
-        id: dist_tag
-        run: |
-          version="$(node -p "require('./package.json').version")"
-          if [[ "${version}" == *-* ]]; then
-            echo "tag=preview" >> "${GITHUB_OUTPUT}"
-          else
-            echo "tag=latest" >> "${GITHUB_OUTPUT}"
-          fi
-
       - name: Publish package
-        run: npm publish --access public --tag "${{ steps.dist_tag.outputs.tag }}"
+        run: npm publish --access public --tag "${{ steps.release_meta.outputs.dist_tag }}"
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Create or update GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.release_meta.outputs.tag }}
+          RELEASE_VERSION: ${{ steps.release_meta.outputs.version }}
+          RELEASE_DIST_TAG: ${{ steps.release_meta.outputs.dist_tag }}
+          RELEASE_IS_PRERELEASE: ${{ steps.release_meta.outputs.prerelease }}
+          RELEASE_COMMIT: ${{ github.sha }}
+        run: |
+          notes_file="$(mktemp)"
+          npm_url="https://www.npmjs.com/package/@prodinfos/sdk-ts/v/${RELEASE_VERSION}"
+          {
+            echo "Published to npm as [@prodinfos/sdk-ts@${RELEASE_VERSION}](${npm_url})."
+            echo
+            echo "npm dist-tag: \`${RELEASE_DIST_TAG}\`."
+          } > "${notes_file}"
+
+          if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
+            edit_args=(release edit "${RELEASE_TAG}" --title "${RELEASE_TAG}" --notes-file "${notes_file}")
+            if [[ "${RELEASE_IS_PRERELEASE}" == "true" ]]; then
+              edit_args+=(--prerelease)
+            fi
+            gh "${edit_args[@]}"
+          else
+            create_args=(release create "${RELEASE_TAG}" --target "${RELEASE_COMMIT}" --title "${RELEASE_TAG}" --notes-file "${notes_file}")
+            if [[ "${RELEASE_IS_PRERELEASE}" == "true" ]]; then
+              create_args+=(--prerelease)
+            fi
+            gh "${create_args[@]}"
+          fi
