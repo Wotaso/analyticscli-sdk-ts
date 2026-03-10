@@ -141,6 +141,51 @@ test('track() flushes a valid ingest batch', async () => {
   });
 });
 
+test('uses the default collector endpoint when endpoint is omitted', async () => {
+  await withMockedGlobals(async (calls) => {
+    const client = init({
+      apiKey: 'pi_live_test',
+      projectId: PROJECT_ID,
+      batchSize: 20,
+      flushIntervalMs: 60_000,
+      maxRetries: 0,
+    });
+
+    try {
+      client.track('onboarding:start');
+      await client.flush();
+
+      assert.equal(calls.length, 1);
+      assert.equal(String(calls[0]?.input), 'https://collector.prodinfos.com/v1/collect');
+    } finally {
+      client.shutdown();
+    }
+  });
+});
+
+test('uses a custom collector endpoint override when provided', async () => {
+  await withMockedGlobals(async (calls) => {
+    const client = init({
+      apiKey: 'pi_live_test',
+      projectId: PROJECT_ID,
+      endpoint: 'https://collector.staging.prodinfos.com/',
+      batchSize: 20,
+      flushIntervalMs: 60_000,
+      maxRetries: 0,
+    });
+
+    try {
+      client.track('onboarding:start');
+      await client.flush();
+
+      assert.equal(calls.length, 1);
+      assert.equal(String(calls[0]?.input), 'https://collector.staging.prodinfos.com/v1/collect');
+    } finally {
+      client.shutdown();
+    }
+  });
+});
+
 test('optOut() disables enqueue and prevents network calls', async () => {
   await withMockedGlobals(async (calls) => {
     const client = init({

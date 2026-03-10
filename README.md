@@ -18,7 +18,6 @@ import { init, ONBOARDING_EVENTS } from '@prodinfos/sdk-ts';
 const analytics = init({
   apiKey: 'pi_live_...',
   projectId: '11111111-1111-4111-8111-111111111111',
-  endpoint: 'https://collector.prodinfos.com',
 });
 
 analytics.trackOnboardingEvent(ONBOARDING_EVENTS.START, {

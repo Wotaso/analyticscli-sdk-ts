@@ -8,6 +8,7 @@ import {
 } from './sdk-contract.js';
 import { validateIngestBatch, type IngestBatch } from './ingest-validation.js';
 import {
+  DEFAULT_COLLECTOR_ENDPOINT,
   DEFAULT_COOKIE_MAX_AGE_SECONDS,
   DEFAULT_SESSION_TIMEOUT_MS,
   DEVICE_ID_KEY,
@@ -85,7 +86,9 @@ export class AnalyticsClient {
 
     this.apiKey = this.readRequiredStringOption(normalizedOptions.apiKey);
     this.projectId = this.readRequiredStringOption(normalizedOptions.projectId);
-    this.endpoint = this.readRequiredStringOption(normalizedOptions.endpoint).replace(/\/$/, '');
+    this.endpoint = (
+      this.readRequiredStringOption(normalizedOptions.endpoint) || DEFAULT_COLLECTOR_ENDPOINT
+    ).replace(/\/$/, '');
     this.batchSize = Math.min(normalizedOptions.batchSize ?? 20, DEFAULT_INGEST_LIMITS.maxBatchSize);
     this.flushIntervalMs = normalizedOptions.flushIntervalMs ?? 5000;
     this.maxRetries = normalizedOptions.maxRetries ?? 4;

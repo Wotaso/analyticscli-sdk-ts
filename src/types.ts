@@ -146,7 +146,11 @@ export type QueuedEvent = {
 export type AnalyticsClientOptions = {
   apiKey: string;
   projectId: string;
-  endpoint: string;
+  /**
+   * Optional collector override.
+   * Host apps normally should not set this.
+   */
+  endpoint?: string;
   batchSize?: number;
   flushIntervalMs?: number;
   maxRetries?: number;
