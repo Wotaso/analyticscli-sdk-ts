@@ -3,11 +3,19 @@
 TypeScript SDK for tenant developers sending onboarding, paywall, purchase, and survey analytics events to the Prodinfos ingest API.
 
 Current npm release channel: preview / experimental beta.
+If no stable release exists yet, `latest` points to the newest preview.
+Once stable releases exist, `latest` is pinned to the newest stable.
 
 ## Install
 
 ```bash
 npm install @prodinfos/sdk-ts@preview
+```
+
+When a stable release becomes available, install without a tag:
+
+```bash
+npm install @prodinfos/sdk-ts
 ```
 
 ## Usage
@@ -26,6 +34,8 @@ analytics.trackOnboardingEvent(ONBOARDING_EVENTS.START, {
 ```
 
 Use your project-specific write key and `projectId` from the Prodinfos dashboard in your workspace.
+The SDK uses the default collector endpoint internally.
+In host apps, do not pass `endpoint` and do not add `PRODINFOS_ENDPOINT` env vars.
 
 ## Releases
 

@@ -147,8 +147,8 @@ export type AnalyticsClientOptions = {
   apiKey: string;
   projectId: string;
   /**
-   * Optional collector override.
-   * Host apps normally should not set this.
+   * Optional collector override reserved for SDK/internal testing.
+   * Host app integrations should not set this option.
    */
   endpoint?: string;
   batchSize?: number;
