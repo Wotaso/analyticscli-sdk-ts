@@ -158,8 +158,16 @@ export type QueuedEvent = {
 };
 
 export type AnalyticsClientOptions = {
-  apiKey: string;
-  projectId: string;
+  /**
+   * Project write key.
+   * If omitted, the client becomes a safe no-op until valid credentials are provided.
+   */
+  apiKey?: string;
+  /**
+   * Internal project id from the Prodinfos dashboard.
+   * If omitted, the client becomes a safe no-op until valid credentials are provided.
+   */
+  projectId?: string;
   /**
    * Optional collector override reserved for SDK/internal testing.
    * Host app integrations should not set this option.
@@ -208,3 +216,46 @@ export type AnalyticsClientOptions = {
 export type InitOptions = AnalyticsClientOptions;
 
 export type SDKEventName = OnboardingEventName | PaywallJourneyEventName | OnboardingSurveyEventName;
+
+export type InitFromEnvMissingConfigMode = 'noop' | 'throw';
+
+export type InitFromEnvMissingConfig = {
+  missingApiKey: boolean;
+  missingProjectId: boolean;
+  searchedApiKeyEnvKeys: string[];
+  searchedProjectIdEnvKeys: string[];
+};
+
+export type InitFromEnvOptions = Omit<AnalyticsClientOptions, 'apiKey' | 'projectId'> & {
+  /**
+   * Optional environment-like object.
+   * Defaults to `globalThis.process?.env` when available.
+   */
+  env?: Record<string, unknown>;
+  /**
+   * Explicit api key override.
+   */
+  apiKey?: string;
+  /**
+   * Explicit project id override.
+   */
+  projectId?: string;
+  /**
+   * Candidate env keys resolved in order.
+   */
+  apiKeyEnvKeys?: string[];
+  /**
+   * Candidate env keys resolved in order.
+   */
+  projectIdEnvKeys?: string[];
+  /**
+   * How missing config is handled.
+   * - `noop` (default): returns a safe no-op client
+   * - `throw`: throws when required config is missing
+   */
+  missingConfigMode?: InitFromEnvMissingConfigMode;
+  /**
+   * Optional callback for custom logging when config is missing.
+   */
+  onMissingConfig?: (details: InitFromEnvMissingConfig) => void;
+};

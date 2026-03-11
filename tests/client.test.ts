@@ -3,6 +3,7 @@ import test from 'node:test';
 import {
   init,
   initAsync,
+  initFromEnv,
   ONBOARDING_EVENTS,
   ONBOARDING_SURVEY_EVENTS,
   PAYWALL_EVENTS,
@@ -180,6 +181,133 @@ test('uses a custom collector endpoint override when provided', async () => {
 
       assert.equal(calls.length, 1);
       assert.equal(String(calls[0]?.input), 'https://collector.staging.prodinfos.com/v1/collect');
+    } finally {
+      client.shutdown();
+    }
+  });
+});
+
+test('initFromEnv() resolves credentials from default env keys', async () => {
+  await withMockedGlobals(async (calls) => {
+    const client = initFromEnv({
+      env: {
+        PRODINFOS_WRITE_KEY: 'pi_live_test',
+        PRODINFOS_PROJECT_ID: PROJECT_ID,
+      },
+      batchSize: 20,
+      flushIntervalMs: 60_000,
+      maxRetries: 0,
+    });
+
+    try {
+      client.track('onboarding:start');
+      await client.flush();
+
+      assert.equal(calls.length, 1);
+      assert.equal(String(calls[0]?.input), 'https://collector.prodinfos.com/v1/collect');
+      const headers = (calls[0]?.init?.headers ?? {}) as Record<string, string>;
+      assert.equal(headers['x-api-key'], 'pi_live_test');
+    } finally {
+      client.shutdown();
+    }
+  });
+});
+
+test('initFromEnv() supports explicit apiKey/projectId overrides', async () => {
+  await withMockedGlobals(async (calls) => {
+    const client = initFromEnv({
+      env: {
+        PRODINFOS_WRITE_KEY: 'pi_live_wrong',
+        PRODINFOS_PROJECT_ID: '00000000-0000-4000-8000-000000000000',
+      },
+      apiKey: 'pi_live_test',
+      projectId: PROJECT_ID,
+      batchSize: 20,
+      flushIntervalMs: 60_000,
+      maxRetries: 0,
+    });
+
+    try {
+      client.track('onboarding:start');
+      await client.flush();
+
+      assert.equal(calls.length, 1);
+      const payload = JSON.parse(String(calls[0]?.init?.body)) as { projectId: string };
+      const headers = (calls[0]?.init?.headers ?? {}) as Record<string, string>;
+      assert.equal(headers['x-api-key'], 'pi_live_test');
+      assert.equal(payload.projectId, PROJECT_ID);
+    } finally {
+      client.shutdown();
+    }
+  });
+});
+
+test('initFromEnv() in noop mode returns a safe no-op client when config is missing', async () => {
+  await withMockedGlobals(async (calls) => {
+    let missingConfig: {
+      missingApiKey: boolean;
+      missingProjectId: boolean;
+      searchedApiKeyEnvKeys: string[];
+      searchedProjectIdEnvKeys: string[];
+    } | null = null;
+
+    const client = initFromEnv({
+      env: {},
+      onMissingConfig: (details) => {
+        missingConfig = details;
+      },
+      batchSize: 20,
+      flushIntervalMs: 60_000,
+      maxRetries: 0,
+    });
+
+    try {
+      client.track('onboarding:start');
+      client.optIn();
+      client.track('onboarding:complete');
+      await client.flush();
+
+      assert.equal(calls.length, 0);
+      assert.equal(missingConfig?.missingApiKey, true);
+      assert.equal(missingConfig?.missingProjectId, true);
+      assert.deepEqual(missingConfig?.searchedApiKeyEnvKeys, ['PRODINFOS_WRITE_KEY', 'NEXT_PUBLIC_PRODINFOS_WRITE_KEY', 'EXPO_PUBLIC_PRODINFOS_WRITE_KEY', 'VITE_PRODINFOS_WRITE_KEY']);
+      assert.deepEqual(missingConfig?.searchedProjectIdEnvKeys, ['PRODINFOS_PROJECT_ID', 'NEXT_PUBLIC_PRODINFOS_PROJECT_ID', 'EXPO_PUBLIC_PRODINFOS_PROJECT_ID', 'VITE_PRODINFOS_PROJECT_ID']);
+    } finally {
+      client.shutdown();
+    }
+  });
+});
+
+test('initFromEnv() throws when missingConfigMode is throw', () => {
+  assert.throws(
+    () =>
+      initFromEnv({
+        env: {
+          PRODINFOS_PROJECT_ID: PROJECT_ID,
+        },
+        missingConfigMode: 'throw',
+      }),
+    /Missing required configuration: apiKey/,
+  );
+});
+
+test('init() without credentials is a safe no-op client', async () => {
+  await withMockedGlobals(async (calls) => {
+    const client = init({
+      batchSize: 20,
+      flushIntervalMs: 60_000,
+      maxRetries: 0,
+    });
+
+    try {
+      client.track('onboarding:start');
+      client.screen('welcome');
+      client.feedback('hi');
+      client.identify('user-1');
+      client.optIn();
+      await client.flush();
+
+      assert.equal(calls.length, 0);
     } finally {
       client.shutdown();
     }

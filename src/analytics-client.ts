@@ -55,6 +55,7 @@ import type {
 export class AnalyticsClient {
   private readonly apiKey: string;
   private readonly projectId: string;
+  private readonly hasIngestConfig: boolean;
   private readonly endpoint: string;
   private readonly batchSize: number;
   private readonly flushIntervalMs: number;
@@ -91,6 +92,7 @@ export class AnalyticsClient {
 
     this.apiKey = this.readRequiredStringOption(normalizedOptions.apiKey);
     this.projectId = this.readRequiredStringOption(normalizedOptions.projectId);
+    this.hasIngestConfig = Boolean(this.apiKey && this.projectId);
     this.endpoint = (
       this.readRequiredStringOption(normalizedOptions.endpoint) || DEFAULT_COLLECTOR_ENDPOINT
     ).replace(/\/$/, '');
@@ -126,6 +128,7 @@ export class AnalyticsClient {
     this.anonId = providedAnonId || this.ensureDeviceId();
     this.sessionId = providedSessionId || this.ensureSessionId();
     this.sessionEventSeq = this.readSessionEventSeq(this.sessionId);
+    this.consentGranted = this.hasIngestConfig;
 
     this.hydrationPromise = this.hydrateIdentityFromStorage();
     this.startAutoFlush();
@@ -144,6 +147,11 @@ export class AnalyticsClient {
    * When disabled, queued events are dropped immediately.
    */
   public setConsent(granted: boolean): void {
+    if (granted && !this.hasIngestConfig) {
+      this.log('Ignoring consent opt-in because `apiKey` or `projectId` is missing');
+      return;
+    }
+
     this.consentGranted = granted;
     if (!granted) {
       this.queue = [];
@@ -174,6 +182,10 @@ export class AnalyticsClient {
    * Anonymous history remains linked by anonId/sessionId.
    */
   public identify(userId: string, traits?: EventProperties): void {
+    if (!this.consentGranted) {
+      return;
+    }
+
     const normalizedUserId = this.readRequiredStringOption(userId);
     if (!normalizedUserId) {
       this.log('Dropping identify call without required `userId`');
@@ -233,6 +245,10 @@ export class AnalyticsClient {
    * Sends a generic product event.
    */
   public track(eventName: string, properties?: EventProperties): void {
+    if (!this.consentGranted) {
+      return;
+    }
+
     if (this.shouldDeferEventsUntilHydrated()) {
       const deferredProperties = this.cloneProperties(properties);
       this.deferEventUntilHydrated(() => {
@@ -442,6 +458,10 @@ export class AnalyticsClient {
    * Sends a screen-view style event using the `screen:<name>` convention.
    */
   public screen(name: string, properties?: EventProperties): void {
+    if (!this.consentGranted) {
+      return;
+    }
+
     if (this.shouldDeferEventsUntilHydrated()) {
       const deferredProperties = this.cloneProperties(properties);
       this.deferEventUntilHydrated(() => {
@@ -477,6 +497,10 @@ export class AnalyticsClient {
    * Sends a feedback event.
    */
   public feedback(message: string, rating?: number, properties?: EventProperties): void {
+    if (!this.consentGranted) {
+      return;
+    }
+
     if (this.shouldDeferEventsUntilHydrated()) {
       const deferredProperties = this.cloneProperties(properties);
       this.deferEventUntilHydrated(() => {
@@ -600,6 +624,10 @@ export class AnalyticsClient {
   }
 
   private startAutoFlush(): void {
+    if (!this.hasIngestConfig) {
+      return;
+    }
+
     this.flushTimer = setInterval(() => {
       this.scheduleFlush();
     }, this.flushIntervalMs);

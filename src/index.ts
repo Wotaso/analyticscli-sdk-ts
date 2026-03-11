@@ -24,6 +24,9 @@ export type {
   AnalyticsStorageAdapter,
   EventContext,
   EventProperties,
+  InitFromEnvMissingConfig,
+  InitFromEnvMissingConfigMode,
+  InitFromEnvOptions,
   InitOptions,
   OnboardingEventProperties,
   OnboardingStepTracker,
@@ -39,13 +42,18 @@ export type {
 } from './types.js';
 
 export { AnalyticsClient } from './analytics-client.js';
+export {
+  DEFAULT_API_KEY_ENV_KEYS,
+  DEFAULT_PROJECT_ID_ENV_KEYS,
+  initFromEnv,
+} from './bootstrap.js';
 import { AnalyticsClient } from './analytics-client.js';
 import type { InitOptions } from './types.js';
 
 /**
  * Creates a browser analytics client instance.
  */
-export const init = (options: InitOptions): AnalyticsClient => {
+export const init = (options: InitOptions = {}): AnalyticsClient => {
   return new AnalyticsClient(options);
 };
 
@@ -53,7 +61,7 @@ export const init = (options: InitOptions): AnalyticsClient => {
  * Creates an analytics client and waits for async storage hydration.
  * Prefer this in React Native when using async persistence (for example AsyncStorage).
  */
-export const initAsync = async (options: InitOptions): Promise<AnalyticsClient> => {
+export const initAsync = async (options: InitOptions = {}): Promise<AnalyticsClient> => {
   const client = new AnalyticsClient(options);
   await client.ready();
   return client;
