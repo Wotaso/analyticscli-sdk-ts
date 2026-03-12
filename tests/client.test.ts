@@ -154,6 +154,41 @@ test('init() supports the short apiKey form', async () => {
   });
 });
 
+test('init() tolerates window objects without addEventListener', () => {
+  const hadWindow = Object.prototype.hasOwnProperty.call(globalThis, 'window');
+  const originalWindow = (globalThis as { window?: unknown }).window;
+
+  Object.defineProperty(globalThis, 'window', {
+    value: {},
+    configurable: true,
+    writable: true,
+  });
+
+  let client: ReturnType<typeof init> | null = null;
+
+  try {
+    assert.doesNotThrow(() => {
+      client = init({
+        apiKey: 'pi_live_test',
+        flushIntervalMs: 60_000,
+        maxRetries: 0,
+      });
+    });
+  } finally {
+    client?.shutdown();
+
+    if (hadWindow) {
+      Object.defineProperty(globalThis, 'window', {
+        value: originalWindow,
+        configurable: true,
+        writable: true,
+      });
+    } else {
+      Reflect.deleteProperty(globalThis, 'window');
+    }
+  }
+});
+
 test('uses the default collector endpoint when endpoint is omitted', async () => {
   await withMockedGlobals(async (calls) => {
     const client = init({
