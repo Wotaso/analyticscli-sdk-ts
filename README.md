@@ -89,8 +89,13 @@ In host apps, do not pass `endpoint` and do not add `PRODINFOS_ENDPOINT` env var
 
 ## Releases
 
-In the public mirror repository, every successful `Release to npm` run creates or updates
-the matching GitHub Release (`v<package.json version>`) and links to the published npm version.
+Versioning is managed in the private monorepo via Changesets.
+Every SDK change should include a changeset entry (`pnpm changeset`), and CI creates
+the release version PR (`chore(release): version sdk-ts`) automatically on `main`.
+
+After that release PR is merged, the public mirror repository can run `Release to npm`.
+Each successful run creates or updates the matching GitHub Release
+(`v<package.json version>`) and links to the published npm version.
 
 Source of truth for this package is the private monorepo path `packages/sdk-ts`.
 Public mirror source prefix: `packages/sdk-ts`.
