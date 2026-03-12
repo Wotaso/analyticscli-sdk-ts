@@ -109,6 +109,8 @@ jobs:
           RELEASE_VERSION: ${{ steps.release_meta.outputs.version }}
           RELEASE_IS_PRERELEASE: ${{ steps.release_meta.outputs.prerelease }}
         run: |
+          set -euo pipefail
+
           expected_latest=""
 
           if [[ "${RELEASE_IS_PRERELEASE}" == "true" ]]; then
@@ -152,8 +154,19 @@ jobs:
             expected_latest="${RELEASE_VERSION}"
           fi
 
-          effective_latest="$(npm view "${PACKAGE_NAME}" dist-tags.latest --json 2>/dev/null || true)"
-          effective_latest="${effective_latest//\"/}"
+          effective_latest=""
+          for attempt in {1..12}; do
+            effective_latest="$(npm view "${PACKAGE_NAME}" dist-tags.latest --json 2>/dev/null || true)"
+            effective_latest="${effective_latest//\"/}"
+            effective_latest="$(printf '%s' "${effective_latest}" | tr -d '\r\n[:space:]')"
+
+            if [[ "${effective_latest}" == "${expected_latest}" ]]; then
+              break
+            fi
+
+            echo "latest currently '${effective_latest:-<empty>}' but expected '${expected_latest}' (attempt ${attempt}/12). Retrying..."
+            sleep 5
+          done
 
           if [[ -z "${expected_latest}" ]]; then
             echo "Dist-tag policy error: expected_latest was not computed." >&2
