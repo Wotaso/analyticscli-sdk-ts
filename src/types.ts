@@ -159,7 +159,8 @@ export type QueuedEvent = {
 
 export type AnalyticsClientOptions = {
   /**
-   * Project write key.
+   * Write key (long API key).
+   * `projectId` is not required.
    * If omitted, the client becomes a safe no-op until a valid key is provided.
    */
   apiKey?: string;

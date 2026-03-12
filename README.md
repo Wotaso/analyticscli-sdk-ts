@@ -43,6 +43,7 @@ analytics.trackOnboardingEvent(ONBOARDING_EVENTS.START, {
 - `VITE_PRODINFOS_WRITE_KEY`
 
 If config is missing, the client is a safe no-op (default behavior).
+When `apiKey` is missing, the SDK logs a console error and remains no-op.
 Use strict mode if you want hard failure:
 
 ```ts
@@ -84,6 +85,7 @@ void analytics.ready();
 ```
 
 Use your project-specific write key from the Prodinfos dashboard in your workspace.
+`projectId` is not required in SDK init calls.
 The SDK uses the default collector endpoint internally.
 In host apps, do not pass `endpoint` and do not add `PRODINFOS_ENDPOINT` env vars.
 

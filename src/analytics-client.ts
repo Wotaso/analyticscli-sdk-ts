@@ -92,6 +92,9 @@ export class AnalyticsClient {
 
     this.apiKey = this.readRequiredStringOption(normalizedOptions.apiKey);
     this.hasIngestConfig = Boolean(this.apiKey);
+    if (!this.hasIngestConfig) {
+      this.reportMissingApiKey();
+    }
     this.endpoint = (
       this.readRequiredStringOption(normalizedOptions.endpoint) || DEFAULT_COLLECTOR_ENDPOINT
     ).replace(/\/$/, '');
@@ -1028,5 +1031,12 @@ export class AnalyticsClient {
     }
     // eslint-disable-next-line no-console
     console.debug('[prodinfos-sdk]', message, data);
+  }
+
+  private reportMissingApiKey(): void {
+    // eslint-disable-next-line no-console
+    console.error(
+      '[prodinfos-sdk] Missing required `apiKey`. Tracking is disabled (safe no-op). Pass your long write key; `projectId` is not required.',
+    );
   }
 }

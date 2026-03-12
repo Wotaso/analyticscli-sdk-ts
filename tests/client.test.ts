@@ -74,6 +74,22 @@ const withMockedGlobals = async (
   }
 };
 
+const withMockedConsoleError = async (
+  fn: (calls: unknown[][]) => Promise<void>,
+): Promise<void> => {
+  const calls: unknown[][] = [];
+  const originalConsoleError = console.error;
+  console.error = (...args: unknown[]) => {
+    calls.push(args);
+  };
+
+  try {
+    await fn(calls);
+  } finally {
+    console.error = originalConsoleError;
+  }
+};
+
 const createCookieDocument = (): { cookie: string } => {
   const store = new Map<string, string>();
 
@@ -358,34 +374,37 @@ test('initFromEnv() supports explicit apiKey override', async () => {
 });
 
 test('initFromEnv() in noop mode returns a safe no-op client when config is missing', async () => {
-  await withMockedGlobals(async (calls) => {
-    let missingConfig: {
-      missingApiKey: boolean;
-      searchedApiKeyEnvKeys: string[];
-    } | null = null;
+  await withMockedConsoleError(async (errorCalls) => {
+    await withMockedGlobals(async (calls) => {
+      let missingConfig: {
+        missingApiKey: boolean;
+        searchedApiKeyEnvKeys: string[];
+      } | null = null;
 
-    const client = initFromEnv({
-      env: {},
-      onMissingConfig: (details) => {
-        missingConfig = details;
-      },
-      batchSize: 20,
-      flushIntervalMs: 60_000,
-      maxRetries: 0,
+      const client = initFromEnv({
+        env: {},
+        onMissingConfig: (details) => {
+          missingConfig = details;
+        },
+        batchSize: 20,
+        flushIntervalMs: 60_000,
+        maxRetries: 0,
+      });
+
+      try {
+        client.track('onboarding:start');
+        client.optIn();
+        client.track('onboarding:complete');
+        await client.flush();
+
+        assert.equal(calls.length, 0);
+        assert.equal(missingConfig?.missingApiKey, true);
+        assert.deepEqual(missingConfig?.searchedApiKeyEnvKeys, ['PRODINFOS_WRITE_KEY', 'NEXT_PUBLIC_PRODINFOS_WRITE_KEY', 'EXPO_PUBLIC_PRODINFOS_WRITE_KEY', 'VITE_PRODINFOS_WRITE_KEY']);
+        assert.equal(errorCalls.length, 1);
+      } finally {
+        client.shutdown();
+      }
     });
-
-    try {
-      client.track('onboarding:start');
-      client.optIn();
-      client.track('onboarding:complete');
-      await client.flush();
-
-      assert.equal(calls.length, 0);
-      assert.equal(missingConfig?.missingApiKey, true);
-      assert.deepEqual(missingConfig?.searchedApiKeyEnvKeys, ['PRODINFOS_WRITE_KEY', 'NEXT_PUBLIC_PRODINFOS_WRITE_KEY', 'EXPO_PUBLIC_PRODINFOS_WRITE_KEY', 'VITE_PRODINFOS_WRITE_KEY']);
-    } finally {
-      client.shutdown();
-    }
   });
 });
 
@@ -401,25 +420,30 @@ test('initFromEnv() throws when missingConfigMode is throw', () => {
 });
 
 test('init() without credentials is a safe no-op client', async () => {
-  await withMockedGlobals(async (calls) => {
-    const client = init({
-      batchSize: 20,
-      flushIntervalMs: 60_000,
-      maxRetries: 0,
+  await withMockedConsoleError(async (errorCalls) => {
+    await withMockedGlobals(async (calls) => {
+      const client = init({
+        batchSize: 20,
+        flushIntervalMs: 60_000,
+        maxRetries: 0,
+      });
+
+      try {
+        client.track('onboarding:start');
+        client.screen('welcome');
+        client.feedback('hi');
+        client.identify('user-1');
+        client.optIn();
+        await client.flush();
+
+        assert.equal(calls.length, 0);
+        assert.equal(errorCalls.length, 1);
+        assert.match(String(errorCalls[0]?.[0] ?? ''), /Missing required `apiKey`/);
+        assert.match(String(errorCalls[0]?.[0] ?? ''), /`projectId` is not required/);
+      } finally {
+        client.shutdown();
+      }
     });
-
-    try {
-      client.track('onboarding:start');
-      client.screen('welcome');
-      client.feedback('hi');
-      client.identify('user-1');
-      client.optIn();
-      await client.flush();
-
-      assert.equal(calls.length, 0);
-    } finally {
-      client.shutdown();
-    }
   });
 });
 
