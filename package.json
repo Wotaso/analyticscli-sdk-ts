@@ -1,7 +1,7 @@
 {
-  "name": "@prodinfos/sdk-ts",
+  "name": "react-native-analyticscli",
   "version": "0.1.0-preview.4",
-  "description": "TypeScript SDK for sending onboarding, paywall, purchase and survey analytics events to Prodinfos.",
+  "description": "TypeScript SDK for sending onboarding, paywall, purchase and survey analytics events to AnalyticsCLI.",
   "license": "MIT",
   "type": "module",
   "main": "dist/index.cjs",

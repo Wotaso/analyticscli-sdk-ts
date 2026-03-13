@@ -22,7 +22,7 @@ test('public SDK API remains no-throw under transient network failures', async (
 
   const client = init({
     apiKey: 'pi_live_test',
-    endpoint: 'https://collector.prodinfos.com',
+    endpoint: 'https://collector.analyticscli.com',
     batchSize: 50,
     flushIntervalMs: 60_000,
     maxRetries: 0,
@@ -83,7 +83,7 @@ test('ready() resolves even when async storage adapters fail', async () => {
 
   const client = init({
     apiKey: 'pi_live_test',
-    endpoint: 'https://collector.prodinfos.com',
+    endpoint: 'https://collector.analyticscli.com',
     storage: {
       getItem: async () => {
         throw new Error('storage read failed');

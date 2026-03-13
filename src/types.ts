@@ -160,7 +160,6 @@ export type QueuedEvent = {
 export type AnalyticsClientOptions = {
   /**
    * Write key (long API key).
-   * `projectId` is not required.
    * If omitted, the client becomes a safe no-op until a valid key is provided.
    */
   apiKey?: string;
@@ -198,7 +197,7 @@ export type AnalyticsClientOptions = {
   dedupeOnboardingStepViewsPerSession?: boolean;
   /**
    * Optional cookie domain to persist device/session ids across subdomains.
-   * Example: `.prodinfos.com`
+   * Example: `.analyticscli.com`
    */
   cookieDomain?: string;
   cookieMaxAgeSeconds?: number;

@@ -2,10 +2,10 @@ import { AnalyticsClient } from './analytics-client.js';
 import type { InitFromEnvMissingConfig, InitFromEnvOptions } from './types.js';
 
 export const DEFAULT_API_KEY_ENV_KEYS = [
-  'PRODINFOS_WRITE_KEY',
-  'NEXT_PUBLIC_PRODINFOS_WRITE_KEY',
-  'EXPO_PUBLIC_PRODINFOS_WRITE_KEY',
-  'VITE_PRODINFOS_WRITE_KEY',
+  'ANALYTICSCLI_WRITE_KEY',
+  'NEXT_PUBLIC_ANALYTICSCLI_WRITE_KEY',
+  'EXPO_PUBLIC_ANALYTICSCLI_WRITE_KEY',
+  'VITE_ANALYTICSCLI_WRITE_KEY',
 ] as const;
 
 const readTrimmedString = (value: unknown): string => {
@@ -50,7 +50,7 @@ const toMissingMessage = (details: InitFromEnvMissingConfig): string => {
     parts.push(`apiKey (searched: ${details.searchedApiKeyEnvKeys.join(', ') || 'none'})`);
   }
 
-  return `[prodinfos-sdk] Missing required configuration: ${parts.join('; ')}.`;
+  return `[analyticscli-sdk] Missing required configuration: ${parts.join('; ')}.`;
 };
 
 /**

@@ -66,7 +66,7 @@ jobs:
         id: npm_version_check
         run: |
           version="${{ steps.release_meta.outputs.version }}"
-          if npm view "@prodinfos/sdk-ts@${version}" version >/dev/null 2>&1; then
+          if npm view "react-native-analyticscli@${version}" version >/dev/null 2>&1; then
             echo "already_published=true" >> "${GITHUB_OUTPUT}"
           else
             echo "already_published=false" >> "${GITHUB_OUTPUT}"
@@ -105,7 +105,7 @@ jobs:
       - name: Enforce npm dist-tag policy
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-          PACKAGE_NAME: '@prodinfos/sdk-ts'
+          PACKAGE_NAME: 'react-native-analyticscli'
           RELEASE_VERSION: ${{ steps.release_meta.outputs.version }}
           RELEASE_IS_PRERELEASE: ${{ steps.release_meta.outputs.prerelease }}
         run: |
@@ -176,9 +176,9 @@ jobs:
           RELEASE_COMMIT: ${{ github.sha }}
         run: |
           notes_file="$(mktemp)"
-          npm_url="https://www.npmjs.com/package/@prodinfos/sdk-ts/v/${RELEASE_VERSION}"
+          npm_url="https://www.npmjs.com/package/react-native-analyticscli/v/${RELEASE_VERSION}"
           {
-            echo "Published to npm as [@prodinfos/sdk-ts@${RELEASE_VERSION}](${npm_url})."
+            echo "Published to npm as [react-native-analyticscli@${RELEASE_VERSION}](${npm_url})."
             echo
             echo "npm dist-tag: \`${RELEASE_DIST_TAG}\`."
             if [[ "${RELEASE_ALREADY_PUBLISHED}" == "true" ]]; then

@@ -1030,13 +1030,13 @@ export class AnalyticsClient {
       return;
     }
     // eslint-disable-next-line no-console
-    console.debug('[prodinfos-sdk]', message, data);
+    console.debug('[analyticscli-sdk]', message, data);
   }
 
   private reportMissingApiKey(): void {
     // eslint-disable-next-line no-console
     console.error(
-      '[prodinfos-sdk] Missing required `apiKey`. Tracking is disabled (safe no-op). Pass your long write key; `projectId` is not required.',
+      '[analyticscli-sdk] Missing required `apiKey`. Tracking is disabled (safe no-op). Pass your long write key.',
     );
   }
 }

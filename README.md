@@ -1,6 +1,6 @@
-# @prodinfos/sdk-ts
+# react-native-analyticscli
 
-TypeScript SDK for tenant developers sending onboarding, paywall, purchase, and survey analytics events to the Prodinfos ingest API.
+TypeScript SDK for tenant developers sending onboarding, paywall, purchase, and survey analytics events to the AnalyticsCLI ingest API.
 
 Current npm release channel: preview / experimental beta.
 If no stable release exists yet, `latest` points to the newest preview.
@@ -9,19 +9,19 @@ Once stable releases exist, `latest` is pinned to the newest stable.
 ## Install
 
 ```bash
-npm install @prodinfos/sdk-ts@preview
+npm install react-native-analyticscli@preview
 ```
 
 When a stable release becomes available, install without a tag:
 
 ```bash
-npm install @prodinfos/sdk-ts
+npm install react-native-analyticscli
 ```
 
 ## Usage (Low Boilerplate)
 
 ```ts
-import { init, ONBOARDING_EVENTS } from '@prodinfos/sdk-ts';
+import { init, ONBOARDING_EVENTS } from 'react-native-analyticscli';
 
 const analytics = init('<YOUR_APP_KEY>'); // short form
 
@@ -37,10 +37,10 @@ analytics.trackOnboardingEvent(ONBOARDING_EVENTS.START, {
 
 `initFromEnv()` remains available and resolves credentials from these env keys:
 
-- `PRODINFOS_WRITE_KEY`
-- `NEXT_PUBLIC_PRODINFOS_WRITE_KEY`
-- `EXPO_PUBLIC_PRODINFOS_WRITE_KEY`
-- `VITE_PRODINFOS_WRITE_KEY`
+- `ANALYTICSCLI_WRITE_KEY`
+- `NEXT_PUBLIC_ANALYTICSCLI_WRITE_KEY`
+- `EXPO_PUBLIC_ANALYTICSCLI_WRITE_KEY`
+- `VITE_ANALYTICSCLI_WRITE_KEY`
 
 If config is missing, the client is a safe no-op (default behavior).
 When `apiKey` is missing, the SDK logs a console error and remains no-op.
@@ -58,10 +58,10 @@ const analytics = initFromEnv({
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Application from 'expo-application';
 import { Platform } from 'react-native';
-import { init } from '@prodinfos/sdk-ts';
+import { init } from 'react-native-analyticscli';
 
 const analytics = init({
-  apiKey: process.env.EXPO_PUBLIC_PRODINFOS_WRITE_KEY,
+  apiKey: process.env.EXPO_PUBLIC_ANALYTICSCLI_WRITE_KEY,
   debug: typeof __DEV__ === 'boolean' ? __DEV__ : false,
   platform:
     Platform.OS === 'ios' ||
@@ -84,10 +84,10 @@ const analytics = init({
 void analytics.ready();
 ```
 
-Use your project-specific write key from the Prodinfos dashboard in your workspace.
-`projectId` is not required in SDK init calls.
+Use your project-specific write key from the AnalyticsCLI dashboard in your workspace.
+Only the write key (`apiKey`) is needed for SDK init calls.
 The SDK uses the default collector endpoint internally.
-In host apps, do not pass `endpoint` and do not add `PRODINFOS_ENDPOINT` env vars.
+In host apps, do not pass `endpoint` and do not add `ANALYTICSCLI_ENDPOINT` env vars.
 
 ## Releases
 

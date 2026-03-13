@@ -123,7 +123,7 @@ test('track() flushes a valid ingest batch', async () => {
   await withMockedGlobals(async (calls) => {
     const client = init({
       apiKey: 'pi_live_test',
-      endpoint: 'https://collector.prodinfos.com',
+      endpoint: 'https://collector.analyticscli.com',
       batchSize: 20,
       flushIntervalMs: 60_000,
       maxRetries: 0,
@@ -136,7 +136,7 @@ test('track() flushes a valid ingest batch', async () => {
       await client.flush();
 
       assert.equal(calls.length, 1);
-      assert.equal(String(calls[0]?.input), 'https://collector.prodinfos.com/v1/collect');
+      assert.equal(String(calls[0]?.input), 'https://collector.analyticscli.com/v1/collect');
 
       const headers = (calls[0]?.init?.headers ?? {}) as Record<string, string>;
       assert.equal(headers['x-api-key'], 'pi_live_test');
@@ -219,7 +219,7 @@ test('uses the default collector endpoint when endpoint is omitted', async () =>
       await client.flush();
 
       assert.equal(calls.length, 1);
-      assert.equal(String(calls[0]?.input), 'https://collector.prodinfos.com/v1/collect');
+      assert.equal(String(calls[0]?.input), 'https://collector.analyticscli.com/v1/collect');
     } finally {
       client.shutdown();
     }
@@ -254,7 +254,7 @@ test('uses a custom collector endpoint override when provided', async () => {
   await withMockedGlobals(async (calls) => {
     const client = init({
       apiKey: 'pi_live_test',
-      endpoint: 'https://collector.staging.prodinfos.com/',
+      endpoint: 'https://collector.staging.analyticscli.com/',
       batchSize: 20,
       flushIntervalMs: 60_000,
       maxRetries: 0,
@@ -265,7 +265,7 @@ test('uses a custom collector endpoint override when provided', async () => {
       await client.flush();
 
       assert.equal(calls.length, 1);
-      assert.equal(String(calls[0]?.input), 'https://collector.staging.prodinfos.com/v1/collect');
+      assert.equal(String(calls[0]?.input), 'https://collector.staging.analyticscli.com/v1/collect');
     } finally {
       client.shutdown();
     }
@@ -301,7 +301,7 @@ test('initFromEnv() resolves credentials from default env keys', async () => {
   await withMockedGlobals(async (calls) => {
     const client = initFromEnv({
       env: {
-        PRODINFOS_WRITE_KEY: 'pi_live_test',
+        ANALYTICSCLI_WRITE_KEY: 'pi_live_test',
       },
       batchSize: 20,
       flushIntervalMs: 60_000,
@@ -313,7 +313,7 @@ test('initFromEnv() resolves credentials from default env keys', async () => {
       await client.flush();
 
       assert.equal(calls.length, 1);
-      assert.equal(String(calls[0]?.input), 'https://collector.prodinfos.com/v1/collect');
+      assert.equal(String(calls[0]?.input), 'https://collector.analyticscli.com/v1/collect');
       const headers = (calls[0]?.init?.headers ?? {}) as Record<string, string>;
       assert.equal(headers['x-api-key'], 'pi_live_test');
     } finally {
@@ -326,7 +326,7 @@ test('initFromEnv() works with api key only', async () => {
   await withMockedGlobals(async (calls) => {
     const client = initFromEnv({
       env: {
-        PRODINFOS_WRITE_KEY: 'pi_live_test',
+        ANALYTICSCLI_WRITE_KEY: 'pi_live_test',
       },
       batchSize: 20,
       flushIntervalMs: 60_000,
@@ -352,7 +352,7 @@ test('initFromEnv() supports explicit apiKey override', async () => {
   await withMockedGlobals(async (calls) => {
     const client = initFromEnv({
       env: {
-        PRODINFOS_WRITE_KEY: 'pi_live_wrong',
+        ANALYTICSCLI_WRITE_KEY: 'pi_live_wrong',
       },
       apiKey: 'pi_live_test',
       batchSize: 20,
@@ -399,7 +399,7 @@ test('initFromEnv() in noop mode returns a safe no-op client when config is miss
 
         assert.equal(calls.length, 0);
         assert.equal(missingConfig?.missingApiKey, true);
-        assert.deepEqual(missingConfig?.searchedApiKeyEnvKeys, ['PRODINFOS_WRITE_KEY', 'NEXT_PUBLIC_PRODINFOS_WRITE_KEY', 'EXPO_PUBLIC_PRODINFOS_WRITE_KEY', 'VITE_PRODINFOS_WRITE_KEY']);
+        assert.deepEqual(missingConfig?.searchedApiKeyEnvKeys, ['ANALYTICSCLI_WRITE_KEY', 'NEXT_PUBLIC_ANALYTICSCLI_WRITE_KEY', 'EXPO_PUBLIC_ANALYTICSCLI_WRITE_KEY', 'VITE_ANALYTICSCLI_WRITE_KEY']);
         assert.equal(errorCalls.length, 1);
       } finally {
         client.shutdown();
@@ -439,7 +439,6 @@ test('init() without credentials is a safe no-op client', async () => {
         assert.equal(calls.length, 0);
         assert.equal(errorCalls.length, 1);
         assert.match(String(errorCalls[0]?.[0] ?? ''), /Missing required `apiKey`/);
-        assert.match(String(errorCalls[0]?.[0] ?? ''), /`projectId` is not required/);
       } finally {
         client.shutdown();
       }
@@ -470,7 +469,7 @@ test('optOut() disables enqueue and prevents network calls', async () => {
   await withMockedGlobals(async (calls) => {
     const client = init({
       apiKey: 'pi_live_test',
-      endpoint: 'https://collector.prodinfos.com',
+      endpoint: 'https://collector.analyticscli.com',
       batchSize: 20,
       flushIntervalMs: 60_000,
       maxRetries: 0,
@@ -492,7 +491,7 @@ test('screen() and feedback() use canonical event names', async () => {
   await withMockedGlobals(async (calls) => {
     const client = init({
       apiKey: 'pi_live_test',
-      endpoint: 'https://collector.prodinfos.com',
+      endpoint: 'https://collector.analyticscli.com',
       batchSize: 20,
       flushIntervalMs: 60_000,
       maxRetries: 0,
@@ -520,7 +519,7 @@ test('typed onboarding/paywall wrappers emit canonical event names', async () =>
   await withMockedGlobals(async (calls) => {
     const client = init({
       apiKey: 'pi_live_test',
-      endpoint: 'https://collector.prodinfos.com',
+      endpoint: 'https://collector.analyticscli.com',
       batchSize: 20,
       flushIntervalMs: 60_000,
       maxRetries: 0,
@@ -573,7 +572,7 @@ test('createPaywallTracker() applies shared defaults and supports all journey he
   await withMockedGlobals(async (calls) => {
     const client = init({
       apiKey: 'pi_live_test',
-      endpoint: 'https://collector.prodinfos.com',
+      endpoint: 'https://collector.analyticscli.com',
       batchSize: 20,
       flushIntervalMs: 60_000,
       maxRetries: 0,
@@ -629,7 +628,7 @@ test('setUser() identifies on login and clears user linkage on logout-style call
   await withMockedGlobals(async (calls) => {
     const client = init({
       apiKey: 'pi_live_test',
-      endpoint: 'https://collector.prodinfos.com',
+      endpoint: 'https://collector.analyticscli.com',
       batchSize: 20,
       flushIntervalMs: 60_000,
       maxRetries: 0,
@@ -673,14 +672,14 @@ test('debug logging is disabled by default and enabled with debug=true', async (
   try {
     const defaultClient = init({
       apiKey: 'pi_live_test',
-      endpoint: 'https://collector.prodinfos.com',
+      endpoint: 'https://collector.analyticscli.com',
       flushIntervalMs: 60_000,
       maxRetries: 0,
     });
 
     const explicitDebugClient = init({
       apiKey: 'pi_live_test',
-      endpoint: 'https://collector.prodinfos.com',
+      endpoint: 'https://collector.analyticscli.com',
       flushIntervalMs: 60_000,
       maxRetries: 0,
       debug: true,
@@ -691,7 +690,7 @@ test('debug logging is disabled by default and enabled with debug=true', async (
       explicitDebugClient.trackPaywallEvent(PAYWALL_EVENTS.SHOWN, {} as never);
 
       assert.equal(debugCalls.length, 1);
-      assert.equal(debugCalls[0]?.[0], '[prodinfos-sdk]');
+      assert.equal(debugCalls[0]?.[0], '[analyticscli-sdk]');
       assert.equal(
         debugCalls[0]?.[1],
         'Dropping paywall event without required `source` property',
@@ -709,7 +708,7 @@ test('dedupeOnboardingStepViewsPerSession drops repeated onboarding:step_view ev
   await withMockedGlobals(async (calls) => {
     const client = init({
       apiKey: 'pi_live_test',
-      endpoint: 'https://collector.prodinfos.com',
+      endpoint: 'https://collector.analyticscli.com',
       batchSize: 20,
       flushIntervalMs: 60_000,
       maxRetries: 0,
@@ -795,7 +794,7 @@ test('dedupeOnboardingStepViewsPerSession resets across sessions', async () => {
   const createClient = (sessionId: string) =>
     init({
       apiKey: 'pi_live_test',
-      endpoint: 'https://collector.prodinfos.com',
+      endpoint: 'https://collector.analyticscli.com',
       batchSize: 20,
       flushIntervalMs: 60_000,
       maxRetries: 0,
@@ -865,7 +864,7 @@ test('createOnboardingTracker() applies shared onboarding defaults without affec
   await withMockedGlobals(async (calls) => {
     const client = init({
       apiKey: 'pi_live_test',
-      endpoint: 'https://collector.prodinfos.com',
+      endpoint: 'https://collector.analyticscli.com',
       batchSize: 20,
       flushIntervalMs: 60_000,
       maxRetries: 0,
@@ -936,7 +935,7 @@ test('trackPaywallEvent() drops events missing required source property', async 
   await withMockedGlobals(async (calls) => {
     const client = init({
       apiKey: 'pi_live_test',
-      endpoint: 'https://collector.prodinfos.com',
+      endpoint: 'https://collector.analyticscli.com',
       batchSize: 20,
       flushIntervalMs: 60_000,
       maxRetries: 0,
@@ -984,8 +983,8 @@ test('cookieDomain enables cross-subdomain id persistence via cookies', async ()
 
   const client = init({
     apiKey: 'pi_live_test',
-    endpoint: 'https://collector.prodinfos.com',
-    cookieDomain: '.prodinfos.com',
+    endpoint: 'https://collector.analyticscli.com',
+    cookieDomain: '.analyticscli.com',
     batchSize: 20,
     flushIntervalMs: 60_000,
     maxRetries: 0,
@@ -1062,7 +1061,7 @@ test('does not write cookies by default when cookie storage is not enabled', asy
 
   const client = init({
     apiKey: 'pi_live_test',
-    endpoint: 'https://collector.prodinfos.com',
+    endpoint: 'https://collector.analyticscli.com',
     batchSize: 20,
     flushIntervalMs: 60_000,
     maxRetries: 0,
@@ -1112,7 +1111,7 @@ test('setContext() only emits allowed geo/os context fields', async () => {
   await withMockedGlobals(async (calls) => {
     const client = init({
       apiKey: 'pi_live_test',
-      endpoint: 'https://collector.prodinfos.com',
+      endpoint: 'https://collector.analyticscli.com',
       batchSize: 20,
       flushIntervalMs: 60_000,
       maxRetries: 0,
@@ -1155,7 +1154,7 @@ test('trackOnboardingSurveyResponse() emits anonymized survey response payloads'
   await withMockedGlobals(async (calls) => {
     const client = init({
       apiKey: 'pi_live_test',
-      endpoint: 'https://collector.prodinfos.com',
+      endpoint: 'https://collector.analyticscli.com',
       batchSize: 20,
       flushIntervalMs: 60_000,
       maxRetries: 0,
@@ -1235,7 +1234,7 @@ test('initAsync() hydrates persisted ids from async storage adapters', async () 
 
     const client = await initAsync({
       apiKey: 'pi_live_test',
-      endpoint: 'https://collector.prodinfos.com',
+      endpoint: 'https://collector.analyticscli.com',
       storage: {
         getItem: async (key: string) => backingStore.get(key) ?? null,
         setItem: async (key: string, value: string) => {
@@ -1278,7 +1277,7 @@ test('init() defers event identity/session binding until async storage hydration
 
     const client = init({
       apiKey: 'pi_live_test',
-      endpoint: 'https://collector.prodinfos.com',
+      endpoint: 'https://collector.analyticscli.com',
       storage: {
         getItem: async (key: string) => backingStore.get(key) ?? null,
         setItem: async (key: string, value: string) => {
@@ -1314,7 +1313,7 @@ test('storage adapter errors never crash the host app', async () => {
   await withMockedGlobals(async (calls) => {
     const client = init({
       apiKey: 'pi_live_test',
-      endpoint: 'https://collector.prodinfos.com',
+      endpoint: 'https://collector.analyticscli.com',
       storage: {
         getItem: () => {
           throw new Error('read failed');
@@ -1342,7 +1341,7 @@ test('invalid event names are dropped without throwing', async () => {
   await withMockedGlobals(async (calls) => {
     const client = init({
       apiKey: 'pi_live_test',
-      endpoint: 'https://collector.prodinfos.com',
+      endpoint: 'https://collector.analyticscli.com',
       batchSize: 20,
       flushIntervalMs: 60_000,
       maxRetries: 0,
