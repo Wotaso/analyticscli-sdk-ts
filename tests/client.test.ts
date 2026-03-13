@@ -537,12 +537,14 @@ test('typed onboarding/paywall wrappers emit canonical event names', async () =>
         source: 'onboarding',
         paywallId: 'default_paywall',
         offering: 'rc_main',
+        paywallEntryId: 'manual_entry',
         fromScreen: 'onboarding_paywall',
       });
       client.trackPaywallEvent(PURCHASE_EVENTS.SUCCESS, {
         source: 'onboarding',
         paywallId: 'default_paywall',
         offering: 'rc_main',
+        paywallEntryId: 'manual_entry',
         packageId: 'annual',
       });
 
@@ -568,6 +570,8 @@ test('typed onboarding/paywall wrappers emit canonical event names', async () =>
       assert.equal(payload.events[0]?.properties?.onboardingExperimentId, 'exp_onboarding_v4');
       assert.equal(payload.events[1]?.properties?.offering, 'rc_main');
       assert.equal(payload.events[2]?.properties?.offering, 'rc_main');
+      assert.equal(payload.events[1]?.properties?.paywallEntryId, undefined);
+      assert.equal(payload.events[2]?.properties?.paywallEntryId, undefined);
     } finally {
       client.shutdown();
     }

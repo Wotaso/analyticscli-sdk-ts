@@ -397,9 +397,7 @@ export class AnalyticsClient {
   public createPaywallTracker(defaults: PaywallTrackerDefaults): PaywallTracker {
     const { source: rawDefaultSource, ...defaultProperties } = defaults;
     const defaultSource = this.readRequiredStringOption(rawDefaultSource);
-    let currentPaywallEntryId = this.readRequiredStringOption(
-      this.readPropertyAsString(defaultProperties.paywallEntryId),
-    );
+    let currentPaywallEntryId: string | undefined;
     if (!defaultSource) {
       this.log('createPaywallTracker() called without a valid default `source`');
     }
@@ -416,23 +414,15 @@ export class AnalyticsClient {
       };
     };
 
-    const resolvePaywallEntryId = (properties: PaywallEventProperties): string | undefined => {
-      return this.readRequiredStringOption(this.readPropertyAsString(properties.paywallEntryId)) || undefined;
-    };
-
     const track = (eventName: PaywallJourneyEventName, properties?: PaywallTrackerProperties) => {
       const mergedProperties = mergeProperties(properties);
+      delete mergedProperties.paywallEntryId;
 
       if (eventName === PAYWALL_EVENTS.SHOWN) {
-        const explicitEntryId = resolvePaywallEntryId(mergedProperties);
-        currentPaywallEntryId = explicitEntryId ?? randomId();
+        currentPaywallEntryId = randomId();
         mergedProperties.paywallEntryId = currentPaywallEntryId;
       } else {
-        const explicitEntryId = resolvePaywallEntryId(mergedProperties);
-        if (explicitEntryId) {
-          currentPaywallEntryId = explicitEntryId;
-          mergedProperties.paywallEntryId = explicitEntryId;
-        } else if (currentPaywallEntryId) {
+        if (currentPaywallEntryId) {
           mergedProperties.paywallEntryId = currentPaywallEntryId;
         }
 
@@ -441,7 +431,9 @@ export class AnalyticsClient {
         }
       }
 
-      this.trackPaywallEvent(eventName, mergedProperties);
+      this.sendPaywallEvent(eventName, mergedProperties, {
+        allowPaywallEntryId: true,
+      });
     };
 
     return {
@@ -462,12 +454,34 @@ export class AnalyticsClient {
     eventName: PaywallJourneyEventName,
     properties: PaywallEventProperties,
   ): void {
+    this.sendPaywallEvent(eventName, properties, {
+      allowPaywallEntryId: false,
+    });
+  }
+
+  private sendPaywallEvent(
+    eventName: PaywallJourneyEventName,
+    properties: PaywallEventProperties,
+    options: { allowPaywallEntryId: boolean },
+  ): void {
     if (typeof properties?.source !== 'string' || properties.source.trim().length === 0) {
       this.log('Dropping paywall event without required `source` property', { eventName });
       return;
     }
 
-    this.track(eventName, properties);
+    const normalizedProperties = {
+      ...properties,
+    };
+
+    if (!options.allowPaywallEntryId && normalizedProperties.paywallEntryId !== undefined) {
+      this.log(
+        'Ignoring `paywallEntryId` in direct trackPaywallEvent(); use createPaywallTracker()',
+        { eventName },
+      );
+      delete normalizedProperties.paywallEntryId;
+    }
+
+    this.track(eventName, normalizedProperties);
   }
 
   /**
