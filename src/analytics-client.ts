@@ -122,7 +122,7 @@ export class AnalyticsClient {
     this.storageReadsAreAsync = this.detectAsyncStorageReads();
     this.sessionTimeoutMs = normalizedOptions.sessionTimeoutMs ?? DEFAULT_SESSION_TIMEOUT_MS;
     this.dedupeOnboardingStepViewsPerSession =
-      normalizedOptions.dedupeOnboardingStepViewsPerSession ?? false;
+      normalizedOptions.dedupeOnboardingStepViewsPerSession ?? true;
     const providedAnonId = normalizedOptions.anonId?.trim();
     const providedSessionId = normalizedOptions.sessionId?.trim();
     this.hasExplicitAnonId = Boolean(providedAnonId);

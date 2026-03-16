@@ -824,7 +824,7 @@ test('debug logging is disabled by default and enabled with debug=true', async (
   }
 });
 
-test('dedupeOnboardingStepViewsPerSession drops repeated onboarding:step_view events in one session', async () => {
+test('dedupeOnboardingStepViewsPerSession is enabled by default and drops repeated onboarding:step_view events in one session', async () => {
   await withMockedGlobals(async (calls) => {
     const client = init({
       apiKey: 'pi_live_test',
@@ -832,7 +832,6 @@ test('dedupeOnboardingStepViewsPerSession drops repeated onboarding:step_view ev
       batchSize: 20,
       flushIntervalMs: 60_000,
       maxRetries: 0,
-      dedupeOnboardingStepViewsPerSession: true,
     });
 
     try {
@@ -882,6 +881,56 @@ test('dedupeOnboardingStepViewsPerSession drops repeated onboarding:step_view ev
       assert.deepEqual(
         payload.events.map((event) => event.properties?.sessionEventIndex),
         [1, 2, 3, 4],
+      );
+    } finally {
+      client.shutdown();
+    }
+  });
+});
+
+test('dedupeOnboardingStepViewsPerSession=false keeps repeated onboarding:step_view events in one session', async () => {
+  await withMockedGlobals(async (calls) => {
+    const client = init({
+      apiKey: 'pi_live_test',
+      endpoint: 'https://collector.analyticscli.com',
+      batchSize: 20,
+      flushIntervalMs: 60_000,
+      maxRetries: 0,
+      dedupeOnboardingStepViewsPerSession: false,
+    });
+
+    try {
+      client.trackOnboardingEvent(ONBOARDING_EVENTS.STEP_VIEW, {
+        onboardingFlowId: 'onboarding_v4',
+        onboardingFlowVersion: '4.0.0',
+        stepKey: 'welcome',
+        stepIndex: 0,
+      });
+      client.trackOnboardingEvent(ONBOARDING_EVENTS.STEP_VIEW, {
+        onboardingFlowId: 'onboarding_v4',
+        onboardingFlowVersion: '4.0.0',
+        stepKey: 'welcome',
+        stepIndex: 0,
+      });
+      client.trackPaywallEvent(PAYWALL_EVENTS.SHOWN, {
+        source: 'onboarding',
+        paywallId: 'default_paywall',
+      });
+
+      await client.flush();
+
+      assert.equal(calls.length, 1);
+      const payload = JSON.parse(String(calls[0]?.init?.body)) as {
+        events: Array<{ eventName: string; properties?: Record<string, unknown> }>;
+      };
+
+      assert.deepEqual(
+        payload.events.map((event) => event.eventName),
+        [ONBOARDING_EVENTS.STEP_VIEW, ONBOARDING_EVENTS.STEP_VIEW, PAYWALL_EVENTS.SHOWN],
+      );
+      assert.deepEqual(
+        payload.events.map((event) => event.properties?.sessionEventIndex),
+        [1, 2, 3],
       );
     } finally {
       client.shutdown();

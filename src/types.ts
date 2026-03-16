@@ -215,6 +215,7 @@ export type AnalyticsClientOptions = {
   /**
    * Drops duplicate `onboarding:step_view` events for the same step within one session.
    * This only affects the dedicated onboarding step-view event, not `screen(...)` or paywall events.
+   * Defaults to `true`. Set to `false` to disable this behavior.
    */
   dedupeOnboardingStepViewsPerSession?: boolean | null;
   /**
