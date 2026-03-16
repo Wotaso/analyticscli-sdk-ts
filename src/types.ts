@@ -176,15 +176,15 @@ export type AnalyticsClientOptions = {
    * Write key (long API key).
    * If omitted, the client becomes a safe no-op until a valid key is provided.
    */
-  apiKey?: string;
+  apiKey?: string | null;
   /**
    * Optional collector override reserved for SDK/internal testing.
    * Host app integrations should not set this option.
    */
-  endpoint?: string;
-  batchSize?: number;
-  flushIntervalMs?: number;
-  maxRetries?: number;
+  endpoint?: string | null;
+  batchSize?: number | null;
+  flushIntervalMs?: number | null;
+  maxRetries?: number | null;
   /**
    * Enables SDK debug logs (`console.debug`).
    * Defaults to `false`.
@@ -192,7 +192,7 @@ export type AnalyticsClientOptions = {
    * React Native/Expo recommendation:
    * `debug: __DEV__`
    */
-  debug?: boolean;
+  debug?: boolean | null;
   /**
    * Optional platform hint.
    * React Native/Expo: passing `Platform.OS` directly is supported.
@@ -203,31 +203,31 @@ export type AnalyticsClientOptions = {
    * Accepts nullable runtime values (for example Expo's `nativeApplicationVersion`).
    */
   appVersion?: string | null;
-  context?: EventContext;
+  context?: EventContext | null;
   /**
    * Optional custom persistence adapter.
    * If omitted, browser storage/cookies are used when available; otherwise in-memory IDs are used.
    */
-  storage?: AnalyticsStorageAdapter;
-  anonId?: string;
-  sessionId?: string;
-  sessionTimeoutMs?: number;
+  storage?: AnalyticsStorageAdapter | null;
+  anonId?: string | null;
+  sessionId?: string | null;
+  sessionTimeoutMs?: number | null;
   /**
    * Drops duplicate `onboarding:step_view` events for the same step within one session.
    * This only affects the dedicated onboarding step-view event, not `screen(...)` or paywall events.
    */
-  dedupeOnboardingStepViewsPerSession?: boolean;
+  dedupeOnboardingStepViewsPerSession?: boolean | null;
   /**
    * Optional cookie domain to persist device/session ids across subdomains.
    * Example: `.analyticscli.com`
    */
-  cookieDomain?: string;
-  cookieMaxAgeSeconds?: number;
+  cookieDomain?: string | null;
+  cookieMaxAgeSeconds?: number | null;
   /**
    * Enables cookie-backed id/session persistence.
    * Defaults to true when `cookieDomain` is provided, otherwise false.
    */
-  useCookieStorage?: boolean;
+  useCookieStorage?: boolean | null;
 };
 
 export type InitOptions = AnalyticsClientOptions;
@@ -246,25 +246,25 @@ export type InitFromEnvOptions = Omit<AnalyticsClientOptions, 'apiKey'> & {
    * Optional environment-like object.
    * Defaults to `globalThis.process?.env` when available.
    */
-  env?: Record<string, unknown>;
+  env?: Record<string, unknown> | null;
   /**
    * Explicit api key override.
    */
-  apiKey?: string;
+  apiKey?: string | null;
   /**
    * Candidate env keys resolved in order.
    */
-  apiKeyEnvKeys?: string[];
+  apiKeyEnvKeys?: string[] | null;
   /**
    * How missing config is handled.
    * - `noop` (default): returns a safe no-op client
    * - `throw`: throws when required config is missing
    */
-  missingConfigMode?: InitFromEnvMissingConfigMode;
+  missingConfigMode?: InitFromEnvMissingConfigMode | null;
   /**
    * Optional callback for custom logging when config is missing.
    */
-  onMissingConfig?: (details: InitFromEnvMissingConfig) => void;
+  onMissingConfig?: ((details: InitFromEnvMissingConfig) => void) | null;
 };
 
-export type InitInput = InitOptions | string;
+export type InitInput = InitOptions | string | null | undefined;

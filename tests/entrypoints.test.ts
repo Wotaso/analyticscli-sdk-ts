@@ -49,7 +49,7 @@ const withMockedFetch = async (
   }
 };
 
-test('browser entrypoint resolves PUBLIC_ANALYTICSCLI_WRITE_KEY by default', async () => {
+test('browser entrypoint resolves PUBLIC_ANALYTICSCLI_PUBLISHABLE_API_KEY by default', async () => {
   await withMockedFetch(async (calls) => {
     const originalLocalStorage = globalThis.localStorage;
     Object.defineProperty(globalThis, 'localStorage', {
@@ -60,7 +60,7 @@ test('browser entrypoint resolves PUBLIC_ANALYTICSCLI_WRITE_KEY by default', asy
 
     const client = initBrowserFromEnv({
       env: {
-        PUBLIC_ANALYTICSCLI_WRITE_KEY: 'pi_live_browser',
+        PUBLIC_ANALYTICSCLI_PUBLISHABLE_API_KEY: 'pi_live_browser',
       },
       flushIntervalMs: 60_000,
       maxRetries: 0,
@@ -88,11 +88,11 @@ test('browser entrypoint resolves PUBLIC_ANALYTICSCLI_WRITE_KEY by default', asy
   });
 });
 
-test('react-native entrypoint resolves EXPO_PUBLIC_ANALYTICSCLI_WRITE_KEY by default', async () => {
+test('react-native entrypoint resolves EXPO_PUBLIC_ANALYTICSCLI_PUBLISHABLE_API_KEY by default', async () => {
   await withMockedFetch(async (calls) => {
     const client = initReactNativeFromEnv({
       env: {
-        EXPO_PUBLIC_ANALYTICSCLI_WRITE_KEY: 'pi_live_react_native',
+        EXPO_PUBLIC_ANALYTICSCLI_PUBLISHABLE_API_KEY: 'pi_live_react_native',
       },
       flushIntervalMs: 60_000,
       maxRetries: 0,

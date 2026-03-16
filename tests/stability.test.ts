@@ -106,7 +106,7 @@ test('ready() resolves even when async storage adapters fail', async () => {
   }
 });
 
-test('init() tolerates non-string required options from untyped JS call sites', async () => {
+test('init() accepts nullable option values without manual type casts', async () => {
   const originalFetch = globalThis.fetch;
   const calls: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];
 
@@ -116,8 +116,8 @@ test('init() tolerates non-string required options from untyped JS call sites', 
   }) as typeof globalThis.fetch;
 
   const client = init({
-    apiKey: null as unknown as string,
-    endpoint: null as unknown as string,
+    apiKey: null,
+    endpoint: null,
     flushIntervalMs: 60_000,
     maxRetries: 0,
   });
@@ -141,7 +141,7 @@ test('init() tolerates missing options object from untyped JS call sites', async
     return new Response(JSON.stringify({ accepted: true }), { status: 202 });
   }) as typeof globalThis.fetch;
 
-  const client = init(undefined as unknown as never);
+  const client = init(undefined);
 
   try {
     assert.doesNotThrow(() => client.track('app_open'));

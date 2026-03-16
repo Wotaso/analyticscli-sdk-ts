@@ -110,7 +110,7 @@ export class AnalyticsClient {
     const useCookieStorage = normalizedOptions.useCookieStorage ?? Boolean(normalizedOptions.cookieDomain);
     const cookieStorage = resolveCookieStorageAdapter(
       useCookieStorage,
-      normalizedOptions.cookieDomain,
+      normalizedOptions.cookieDomain ?? undefined,
       normalizedOptions.cookieMaxAgeSeconds ?? DEFAULT_COOKIE_MAX_AGE_SECONDS,
     );
     const browserStorage = resolveBrowserStorageAdapter();

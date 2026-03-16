@@ -322,11 +322,11 @@ test('accepts null appVersion option without requiring undefined coalescing', as
   });
 });
 
-test('initFromEnv() resolves credentials from default env keys', async () => {
+test('initFromEnv() resolves credentials from default publishable env keys', async () => {
   await withMockedGlobals(async (calls) => {
     const client = initFromEnv({
       env: {
-        ANALYTICSCLI_WRITE_KEY: 'pi_live_test',
+        ANALYTICSCLI_PUBLISHABLE_API_KEY: 'pi_live_test',
       },
       batchSize: 20,
       flushIntervalMs: 60_000,
@@ -424,7 +424,16 @@ test('initFromEnv() in noop mode returns a safe no-op client when config is miss
 
         assert.equal(calls.length, 0);
         assert.equal(missingConfig?.missingApiKey, true);
-        assert.deepEqual(missingConfig?.searchedApiKeyEnvKeys, ['ANALYTICSCLI_WRITE_KEY', 'NEXT_PUBLIC_ANALYTICSCLI_WRITE_KEY', 'EXPO_PUBLIC_ANALYTICSCLI_WRITE_KEY', 'VITE_ANALYTICSCLI_WRITE_KEY']);
+        assert.deepEqual(missingConfig?.searchedApiKeyEnvKeys, [
+          'ANALYTICSCLI_PUBLISHABLE_API_KEY',
+          'NEXT_PUBLIC_ANALYTICSCLI_PUBLISHABLE_API_KEY',
+          'EXPO_PUBLIC_ANALYTICSCLI_PUBLISHABLE_API_KEY',
+          'VITE_ANALYTICSCLI_PUBLISHABLE_API_KEY',
+          'ANALYTICSCLI_WRITE_KEY',
+          'NEXT_PUBLIC_ANALYTICSCLI_WRITE_KEY',
+          'EXPO_PUBLIC_ANALYTICSCLI_WRITE_KEY',
+          'VITE_ANALYTICSCLI_WRITE_KEY',
+        ]);
         assert.equal(errorCalls.length, 1);
       } finally {
         client.shutdown();

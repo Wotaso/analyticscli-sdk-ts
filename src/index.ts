@@ -55,6 +55,9 @@ const normalizeInitInput = (input: InitInput): InitOptions => {
   if (typeof input === 'string') {
     return { apiKey: input };
   }
+  if (input === null || input === undefined) {
+    return {};
+  }
   return input;
 };
 
@@ -76,6 +79,11 @@ export const initAsync = async (input: InitInput = {}): Promise<AnalyticsClient>
 };
 
 export const BROWSER_API_KEY_ENV_KEYS = [
+  'ANALYTICSCLI_PUBLISHABLE_API_KEY',
+  'NEXT_PUBLIC_ANALYTICSCLI_PUBLISHABLE_API_KEY',
+  'PUBLIC_ANALYTICSCLI_PUBLISHABLE_API_KEY',
+  'VITE_ANALYTICSCLI_PUBLISHABLE_API_KEY',
+  'EXPO_PUBLIC_ANALYTICSCLI_PUBLISHABLE_API_KEY',
   'ANALYTICSCLI_WRITE_KEY',
   'NEXT_PUBLIC_ANALYTICSCLI_WRITE_KEY',
   'PUBLIC_ANALYTICSCLI_WRITE_KEY',
@@ -84,6 +92,8 @@ export const BROWSER_API_KEY_ENV_KEYS = [
 ] as const;
 
 export const REACT_NATIVE_API_KEY_ENV_KEYS = [
+  'ANALYTICSCLI_PUBLISHABLE_API_KEY',
+  'EXPO_PUBLIC_ANALYTICSCLI_PUBLISHABLE_API_KEY',
   'ANALYTICSCLI_WRITE_KEY',
   'EXPO_PUBLIC_ANALYTICSCLI_WRITE_KEY',
 ] as const;
