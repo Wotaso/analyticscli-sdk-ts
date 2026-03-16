@@ -173,7 +173,7 @@ export type QueuedEvent = {
 
 export type AnalyticsClientOptions = {
   /**
-   * Write key (long API key).
+   * Publishable ingest API key.
    * If omitted, the client becomes a safe no-op until a valid key is provided.
    */
   apiKey?: string | null;

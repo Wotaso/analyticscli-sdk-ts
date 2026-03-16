@@ -26,6 +26,15 @@ When a stable release becomes available, install without a tag:
 npm install @analyticscli/sdk
 ```
 
+## Dashboard Credentials
+
+Before integrating, collect required values in [dash.analyticscli.com](https://dash.analyticscli.com):
+
+- Select the target project.
+- Open **API Keys** and copy the publishable ingest API key for SDK `apiKey`.
+- If you validate with CLI, create/copy a CLI `readonly_token` in the same **API Keys** area.
+- Optional for CLI verification: set a default project once with `analyticscli projects select` (arrow-key picker), or pass `--project <project_id>` per command.
+
 ## Usage (Low Boilerplate)
 
 ```ts
@@ -45,15 +54,15 @@ analytics.trackOnboardingEvent(ONBOARDING_EVENTS.START, {
 
 `initFromEnv()` remains available and resolves credentials from these env keys:
 
-- `ANALYTICSCLI_WRITE_KEY`
-- `NEXT_PUBLIC_ANALYTICSCLI_WRITE_KEY`
-- `EXPO_PUBLIC_ANALYTICSCLI_WRITE_KEY`
-- `VITE_ANALYTICSCLI_WRITE_KEY`
+- `ANALYTICSCLI_PUBLISHABLE_API_KEY`
+- `NEXT_PUBLIC_ANALYTICSCLI_PUBLISHABLE_API_KEY`
+- `EXPO_PUBLIC_ANALYTICSCLI_PUBLISHABLE_API_KEY`
+- `VITE_ANALYTICSCLI_PUBLISHABLE_API_KEY`
 
 Runtime-specific env helpers are also available:
 
 - `@analyticscli/sdk` -> `initBrowserFromEnv(...)`
-  - adds `PUBLIC_ANALYTICSCLI_WRITE_KEY` lookup for Astro/browser-first setups
+  - adds `PUBLIC_ANALYTICSCLI_PUBLISHABLE_API_KEY` lookup for Astro/browser-first setups
 - `@analyticscli/sdk` -> `initReactNativeFromEnv(...)`
   - defaults to native-friendly env key lookup
 - optional compatibility subpaths:
@@ -79,7 +88,7 @@ import { Platform } from 'react-native';
 import { init } from '@analyticscli/sdk';
 
 const analytics = init({
-  apiKey: process.env.EXPO_PUBLIC_ANALYTICSCLI_WRITE_KEY,
+  apiKey: process.env.EXPO_PUBLIC_ANALYTICSCLI_PUBLISHABLE_API_KEY,
   debug: __DEV__,
   platform: Platform.OS,
   appVersion: Application.nativeApplicationVersion,
@@ -116,12 +125,13 @@ storage: {
 }
 ```
 
-You do not need `analytics.ready()` to start tracking. Tracking starts on
-`init(...)`. `ready()` is optional and only needed when you want to explicitly
-wait for async storage hydration before the very first app flow continues.
+`analytics.ready()` does not "start" tracking. The SDK starts immediately on
+`init(...)`, and with async storage it defers pre-hydration events internally.
+Call `ready()` (or use `initAsync(...)`) only when your app should block until
+hydration is finished before continuing first-flow logic.
 
-Use your project-specific write key from the AnalyticsCLI dashboard in your workspace.
-Only the write key (`apiKey`) is needed for SDK init calls.
+Use your project-specific publishable API key from the AnalyticsCLI dashboard in your workspace.
+Only the publishable API key (`apiKey`) is needed for SDK init calls.
 The SDK uses the default collector endpoint internally.
 In host apps, do not pass `endpoint` and do not add `ANALYTICSCLI_ENDPOINT` env vars.
 

@@ -347,11 +347,11 @@ test('initFromEnv() resolves credentials from default publishable env keys', asy
   });
 });
 
-test('initFromEnv() works with api key only', async () => {
+test('initFromEnv() works with publishable api key only', async () => {
   await withMockedGlobals(async (calls) => {
     const client = initFromEnv({
       env: {
-        ANALYTICSCLI_WRITE_KEY: 'pi_live_test',
+        ANALYTICSCLI_PUBLISHABLE_API_KEY: 'pi_live_test',
       },
       batchSize: 20,
       flushIntervalMs: 60_000,
@@ -373,11 +373,37 @@ test('initFromEnv() works with api key only', async () => {
   });
 });
 
+test('initFromEnv() ignores write-key aliases unless apiKeyEnvKeys includes them', async () => {
+  await withMockedConsoleError(async (errorCalls) => {
+    await withMockedGlobals(async (calls) => {
+      const client = initFromEnv({
+        env: {
+          ANALYTICSCLI_WRITE_KEY: 'pi_live_test',
+        },
+        batchSize: 20,
+        flushIntervalMs: 60_000,
+        maxRetries: 0,
+      });
+
+      try {
+        client.track('onboarding:start');
+        await client.flush();
+
+        assert.equal(calls.length, 0);
+        assert.equal(errorCalls.length, 1);
+        assert.match(String(errorCalls[0]?.[0] ?? ''), /Missing required `apiKey`/);
+      } finally {
+        client.shutdown();
+      }
+    });
+  });
+});
+
 test('initFromEnv() supports explicit apiKey override', async () => {
   await withMockedGlobals(async (calls) => {
     const client = initFromEnv({
       env: {
-        ANALYTICSCLI_WRITE_KEY: 'pi_live_wrong',
+        ANALYTICSCLI_PUBLISHABLE_API_KEY: 'pi_live_wrong',
       },
       apiKey: 'pi_live_test',
       batchSize: 20,
@@ -429,10 +455,6 @@ test('initFromEnv() in noop mode returns a safe no-op client when config is miss
           'NEXT_PUBLIC_ANALYTICSCLI_PUBLISHABLE_API_KEY',
           'EXPO_PUBLIC_ANALYTICSCLI_PUBLISHABLE_API_KEY',
           'VITE_ANALYTICSCLI_PUBLISHABLE_API_KEY',
-          'ANALYTICSCLI_WRITE_KEY',
-          'NEXT_PUBLIC_ANALYTICSCLI_WRITE_KEY',
-          'EXPO_PUBLIC_ANALYTICSCLI_WRITE_KEY',
-          'VITE_ANALYTICSCLI_WRITE_KEY',
         ]);
         assert.equal(errorCalls.length, 1);
       } finally {

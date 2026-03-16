@@ -1078,7 +1078,7 @@ export class AnalyticsClient {
   private reportMissingApiKey(): void {
     // eslint-disable-next-line no-console
     console.error(
-      '[analyticscli-sdk] Missing required `apiKey`. Tracking is disabled (safe no-op). Pass your long write key.',
+      '[analyticscli-sdk] Missing required `apiKey`. Tracking is disabled (safe no-op). Pass your publishable API key.',
     );
   }
 }
