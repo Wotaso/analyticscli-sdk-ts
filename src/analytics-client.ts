@@ -158,8 +158,7 @@ export class AnalyticsClient {
   }
 
   /**
-   * Resolves once any async storage adapter hydration completes.
-   * Useful in React Native when using async persistence (for example AsyncStorage).
+   * Resolves once client initialization work completes.
    */
   public async ready(): Promise<void> {
     await this.hydrationPromise;

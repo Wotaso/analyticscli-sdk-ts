@@ -176,8 +176,8 @@ export type AnalyticsConsentState = 'granted' | 'denied' | 'unknown';
 
 export type SetConsentOptions = {
   /**
-   * Persist consent state into configured storage.
-   * Defaults to true when `persistConsentState` is enabled.
+   * Legacy compatibility flag.
+   * Ignored in current strict-only mode.
    */
   persist?: boolean;
 };
@@ -257,15 +257,13 @@ export type AnalyticsClientOptions = {
    */
   dedupeOnboardingStepViewsPerSession?: boolean | null;
   /**
-   * Optional cookie domain to persist device/session ids across subdomains.
-   * Example: `.analyticscli.com`
+   * Legacy cookie-domain option.
    * Ignored in current strict-only mode.
    */
   cookieDomain?: string | null;
   cookieMaxAgeSeconds?: number | null;
   /**
-   * Enables cookie-backed id/session persistence.
-   * Defaults to true when `cookieDomain` is provided, otherwise false.
+   * Legacy cookie persistence option.
    * Ignored in current strict-only mode.
    */
   useCookieStorage?: boolean | null;

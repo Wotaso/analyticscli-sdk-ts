@@ -52,13 +52,14 @@ analytics.trackOnboardingEvent(ONBOARDING_EVENTS.START, {
 - `init('<YOUR_APP_KEY>')`
 - `init({ ...allOptionsOptional })`
 
-Consent-first shortcut (recommended for production):
+Optional runtime pause/resume:
 
 ```ts
-import { initConsentFirst } from '@analyticscli/sdk';
+import { init } from '@analyticscli/sdk';
 
-const analytics = initConsentFirst('<YOUR_APP_KEY>');
-// later, after explicit user opt-in:
+const analytics = init('<YOUR_APP_KEY>');
+analytics.optOut(); // stop sending until optIn()
+// ...
 analytics.optIn();
 ```
 
@@ -92,7 +93,6 @@ const analytics = initFromEnv({
 ## Optional Configuration
 
 ```ts
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Application from 'expo-application';
 import { Platform } from 'react-native';
 import { init } from '@analyticscli/sdk';
@@ -103,11 +103,8 @@ const analytics = init({
   platform: Platform.OS,
   projectSurface: 'app',
   appVersion: Application.nativeApplicationVersion,
-  initialConsentGranted: false,
-  persistConsentState: true,
-  consentStorageKey: 'myapp:analytics:consent:v1',
+  initialConsentGranted: true,
   dedupeOnboardingStepViewsPerSession: true,
-  storage: AsyncStorage,
 });
 ```
 
@@ -128,24 +125,17 @@ The SDK currently runs in strict privacy mode:
 - `identify()` / `setUser(...)` do not create user linkage events
 
 `initialConsentGranted` is optional:
-- default: `true` when `apiKey` is present (backward-compatible)
-- set to `false` for consent-first integration, then call `analytics.optIn()`
-  after explicit user consent.
+- default: `true` when `apiKey` is present
+- you can still pause/resume collection at runtime with consent APIs when your app needs that
 
-`persistConsentState`, `consentStorageKey`, `storage`, `cookieDomain`, and
-`useCookieStorage` are accepted for backward compatibility but ignored in the
-current strict-only behavior.
-
-Common consent APIs:
+Runtime collection control APIs:
 - `analytics.getConsent()` -> current in-memory consent
 - `analytics.getConsentState()` -> `'granted' | 'denied' | 'unknown'`
 - `analytics.optIn()` / `analytics.optOut()`
-- `analytics.setConsent(true|false, { persist: true|false })`
+- `analytics.setConsent(true|false)`
 
-`analytics.ready()` does not "start" tracking. If consent is granted, the SDK
+`analytics.ready()` does not "start" tracking. With default settings, tracking
 starts on `init(...)`.
-Call `ready()` (or use `initAsync(...)`) only when your app should block until
-hydration is finished before continuing first-flow logic.
 
 Use your project-specific publishable API key from the AnalyticsCLI dashboard in your workspace.
 Only the publishable API key (`apiKey`) is needed for SDK init calls.

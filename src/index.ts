@@ -83,8 +83,7 @@ export const initConsentFirst = (input: InitInput = {}): AnalyticsClient => {
 };
 
 /**
- * Creates an analytics client and waits for async storage hydration.
- * Prefer this in React Native when using async persistence (for example AsyncStorage).
+ * Creates an analytics client and resolves once client initialization completes.
  */
 export const initAsync = async (input: InitInput = {}): Promise<AnalyticsClient> => {
   const client = new AnalyticsClient(normalizeInitInput(input));
