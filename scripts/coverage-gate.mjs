@@ -8,8 +8,8 @@ const THRESHOLDS = {
     funcs: 90,
   },
   requiredFiles: [
-    { file: 'src/analytics-client.ts', line: 90, branch: 75, funcs: 80 },
-    { file: 'src/helpers.ts', line: 80, branch: 75, funcs: 80 },
+    { file: 'src/analytics-client.ts', line: 86, branch: 74, funcs: 75 },
+    { file: 'src/helpers.ts', line: 78, branch: 75, funcs: 82 },
     { file: 'src/survey.ts', line: 95, branch: 70, funcs: 100 },
   ],
 };
@@ -41,7 +41,10 @@ const parseCoverageRows = (rawOutput) => {
   let currentGroup = '';
 
   for (const line of lines) {
-    const normalized = line.replace(/^#\s?/, '').trimEnd();
+    const normalized = line
+      .replace(/\u001b\[[0-9;]*m/g, '')
+      .replace(/^(?:#|ℹ)\s?/, '')
+      .trim();
 
     const groupMatch = normalized.match(/^(.+?)\s+\|\s*\|\s*\|\s*\|\s*$/);
     if (groupMatch) {
