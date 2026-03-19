@@ -21,6 +21,7 @@ export type {
 
 export type {
   AnalyticsClientOptions,
+  AnalyticsConsentState,
   AnalyticsStorageAdapter,
   EventContext,
   EventProperties,
@@ -40,6 +41,7 @@ export type {
   PaywallTracker,
   PaywallTrackerDefaults,
   PaywallTrackerProperties,
+  SetConsentOptions,
 } from './types.js';
 
 export { AnalyticsClient } from './analytics-client.js';
@@ -69,11 +71,30 @@ export const init = (input: InitInput = {}): AnalyticsClient => {
 };
 
 /**
+ * Creates an analytics client with consent-first defaults.
+ * Tracking stays disabled until `optIn()` / `setConsent(true)` is called.
+ */
+export const initConsentFirst = (input: InitInput = {}): AnalyticsClient => {
+  const normalized = normalizeInitInput(input);
+  return new AnalyticsClient({
+    ...normalized,
+    initialConsentGranted: false,
+    persistConsentState: normalized.persistConsentState ?? true,
+  });
+};
+
+/**
  * Creates an analytics client and waits for async storage hydration.
  * Prefer this in React Native when using async persistence (for example AsyncStorage).
  */
 export const initAsync = async (input: InitInput = {}): Promise<AnalyticsClient> => {
   const client = new AnalyticsClient(normalizeInitInput(input));
+  await client.ready();
+  return client;
+};
+
+export const initConsentFirstAsync = async (input: InitInput = {}): Promise<AnalyticsClient> => {
+  const client = initConsentFirst(input);
   await client.ready();
   return client;
 };

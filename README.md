@@ -52,6 +52,16 @@ analytics.trackOnboardingEvent(ONBOARDING_EVENTS.START, {
 - `init('<YOUR_APP_KEY>')`
 - `init({ ...allOptionsOptional })`
 
+Consent-first shortcut (recommended for production):
+
+```ts
+import { initConsentFirst } from '@analyticscli/sdk';
+
+const analytics = initConsentFirst('<YOUR_APP_KEY>');
+// later, after explicit user opt-in:
+analytics.optIn();
+```
+
 `initFromEnv()` remains available and resolves credentials from these env keys:
 
 - `ANALYTICSCLI_PUBLISHABLE_API_KEY`
@@ -91,7 +101,11 @@ const analytics = init({
   apiKey: process.env.EXPO_PUBLIC_ANALYTICSCLI_PUBLISHABLE_API_KEY,
   debug: __DEV__,
   platform: Platform.OS,
+  projectSurface: 'app',
   appVersion: Application.nativeApplicationVersion,
+  initialConsentGranted: false,
+  persistConsentState: true,
+  consentStorageKey: 'myapp:analytics:consent:v1',
   dedupeOnboardingStepViewsPerSession: true,
   storage: AsyncStorage,
 });
@@ -100,6 +114,8 @@ const analytics = init({
 The SDK normalizes React Native/Expo platform values to canonical ingest values
 (`macos` -> `mac`, `win32` -> `windows`) and accepts `null` for optional
 `appVersion` inputs.
+Use `projectSurface` for product/channel separation (`landing`, `dashboard`, `app`)
+without overloading runtime `platform` (`web`, `ios`, `android`, ...).
 
 `dedupeOnboardingStepViewsPerSession` only dedupes duplicate
 `onboarding:step_view` events for the same step in the same session (for
@@ -110,6 +126,21 @@ dedupe paywall events, purchase events, or `screen(...)` calls.
 SDK can persist `anonId` and `sessionId` across app restarts so funnels and
 journeys stay connected. Without storage, IDs are memory-only and reset on
 cold start.
+
+`initialConsentGranted` is optional:
+- default: `true` when `apiKey` is present (backward-compatible)
+- set to `false` for consent-first integration, then call `analytics.optIn()`
+  after explicit user consent.
+
+`persistConsentState` is optional (default `true`) and stores consent choice in
+the configured storage. `consentStorageKey` customizes that storage key
+(default `analyticscli:consent:v1`).
+
+Common consent APIs:
+- `analytics.getConsent()` -> current in-memory consent
+- `analytics.getConsentState()` -> `'granted' | 'denied' | 'unknown'`
+- `analytics.optIn()` / `analytics.optOut()`
+- `analytics.setConsent(true|false, { persist: true|false })`
 
 If your store already exposes `getItem` / `setItem` / `removeItem` (for example
 AsyncStorage, localStorage-like stores, or Expo key-value stores with the same
@@ -125,8 +156,9 @@ storage: {
 }
 ```
 
-`analytics.ready()` does not "start" tracking. The SDK starts immediately on
-`init(...)`, and with async storage it defers pre-hydration events internally.
+`analytics.ready()` does not "start" tracking. If consent is granted, the SDK
+starts on `init(...)`, and with async storage it defers pre-hydration events
+internally.
 Call `ready()` (or use `initAsync(...)`) only when your app should block until
 hydration is finished before continuing first-flow logic.
 

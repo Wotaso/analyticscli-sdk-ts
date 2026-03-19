@@ -153,6 +153,7 @@ export type QueuedEvent = {
   userId?: string | null;
   properties: EventProperties;
   platform?: string;
+  projectSurface?: string;
   appVersion?: string;
   appBuild?: string;
   osName?: string;
@@ -169,6 +170,16 @@ export type QueuedEvent = {
   carrier?: string;
   installSource?: string;
   type: 'track' | 'screen' | 'identify' | 'feedback';
+};
+
+export type AnalyticsConsentState = 'granted' | 'denied' | 'unknown';
+
+export type SetConsentOptions = {
+  /**
+   * Persist consent state into configured storage.
+   * Defaults to true when `persistConsentState` is enabled.
+   */
+  persist?: boolean;
 };
 
 export type AnalyticsClientOptions = {
@@ -203,6 +214,27 @@ export type AnalyticsClientOptions = {
    * Accepts nullable runtime values (for example Expo's `nativeApplicationVersion`).
    */
   appVersion?: string | null;
+  /**
+   * Optional project surface hint to separate product surfaces/channels
+   * (for example `landing`, `dashboard`, `app`) from runtime `platform`.
+   */
+  projectSurface?: string | null;
+  /**
+   * Initial consent state.
+   * Defaults to `true` when `apiKey` is present (backward-compatible behavior).
+   * Set to `false` to enforce explicit `optIn()` / `setConsent(true)` before tracking.
+   */
+  initialConsentGranted?: boolean | null;
+  /**
+   * Persists consent choices in storage (if available).
+   * Defaults to `true`.
+   */
+  persistConsentState?: boolean | null;
+  /**
+   * Storage key for persisted consent state.
+   * Defaults to `analyticscli:consent:v1`.
+   */
+  consentStorageKey?: string | null;
   context?: EventContext | null;
   /**
    * Optional custom persistence adapter.

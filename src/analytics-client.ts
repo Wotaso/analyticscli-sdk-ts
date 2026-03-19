@@ -36,6 +36,7 @@ import {
 } from './helpers.js';
 import { sanitizeSurveyResponseInput } from './survey.js';
 import type {
+  AnalyticsConsentState,
   AnalyticsClientOptions,
   AnalyticsStorageAdapter,
   EventContext,
@@ -51,7 +52,10 @@ import type {
   PaywallTrackerDefaults,
   PaywallTrackerProperties,
   QueuedEvent,
+  SetConsentOptions,
 } from './types.js';
+
+const DEFAULT_CONSENT_STORAGE_KEY = 'analyticscli:consent:v1';
 
 export class AnalyticsClient {
   private readonly apiKey: string;
@@ -62,10 +66,14 @@ export class AnalyticsClient {
   private readonly maxRetries: number;
   private readonly debug: boolean;
   private readonly platform: string | undefined;
+  private readonly projectSurface: string | undefined;
   private readonly appVersion: string | undefined;
   private context: EventContext;
   private readonly storage: AnalyticsStorageAdapter | null;
   private readonly storageReadsAreAsync: boolean;
+  private readonly persistConsentState: boolean;
+  private readonly consentStorageKey: string;
+  private readonly hasExplicitInitialConsent: boolean;
   private readonly sessionTimeoutMs: number;
   private readonly dedupeOnboardingStepViewsPerSession: boolean;
   private readonly runtimeEnv: 'production' | 'development';
@@ -103,6 +111,7 @@ export class AnalyticsClient {
     this.maxRetries = normalizedOptions.maxRetries ?? 4;
     this.debug = normalizedOptions.debug ?? false;
     this.platform = this.normalizePlatformOption(normalizedOptions.platform) ?? detectDefaultPlatform();
+    this.projectSurface = this.normalizeProjectSurfaceOption(normalizedOptions.projectSurface);
     this.appVersion =
       this.readRequiredStringOption(normalizedOptions.appVersion) || detectDefaultAppVersion();
     this.context = { ...(normalizedOptions.context ?? {}) };
@@ -120,6 +129,10 @@ export class AnalyticsClient {
         ? combineStorageAdapters(cookieStorage, browserStorage)
         : cookieStorage ?? browserStorage);
     this.storageReadsAreAsync = this.detectAsyncStorageReads();
+    this.persistConsentState = normalizedOptions.persistConsentState ?? true;
+    this.consentStorageKey =
+      this.readRequiredStringOption(normalizedOptions.consentStorageKey) || DEFAULT_CONSENT_STORAGE_KEY;
+    this.hasExplicitInitialConsent = typeof normalizedOptions.initialConsentGranted === 'boolean';
     this.sessionTimeoutMs = normalizedOptions.sessionTimeoutMs ?? DEFAULT_SESSION_TIMEOUT_MS;
     this.dedupeOnboardingStepViewsPerSession =
       normalizedOptions.dedupeOnboardingStepViewsPerSession ?? true;
@@ -131,7 +144,16 @@ export class AnalyticsClient {
     this.anonId = providedAnonId || this.ensureDeviceId();
     this.sessionId = providedSessionId || this.ensureSessionId();
     this.sessionEventSeq = this.readSessionEventSeq(this.sessionId);
-    this.consentGranted = this.hasIngestConfig;
+    const persistedConsent = this.readPersistedConsentSync();
+    const configuredConsent = normalizedOptions.initialConsentGranted;
+    const initialConsentGranted =
+      typeof configuredConsent === 'boolean'
+        ? configuredConsent
+        : persistedConsent ?? this.hasIngestConfig;
+    this.consentGranted = this.hasIngestConfig && initialConsentGranted;
+    if (this.hasExplicitInitialConsent && this.persistConsentState) {
+      this.writePersistedConsent(this.consentGranted);
+    }
 
     this.hydrationPromise = this.hydrateIdentityFromStorage();
     this.startAutoFlush();
@@ -149,25 +171,43 @@ export class AnalyticsClient {
    * Enables or disables event collection.
    * When disabled, queued events are dropped immediately.
    */
-  public setConsent(granted: boolean): void {
+  public setConsent(granted: boolean, options: SetConsentOptions = {}): void {
     if (granted && !this.hasIngestConfig) {
       this.log('Ignoring consent opt-in because `apiKey` is missing');
       return;
     }
 
     this.consentGranted = granted;
+    if ((options.persist ?? true) && this.persistConsentState) {
+      this.writePersistedConsent(granted);
+    }
     if (!granted) {
       this.queue = [];
       this.deferredEventsBeforeHydration = [];
     }
   }
 
-  public optIn(): void {
-    this.setConsent(true);
+  public optIn(options?: SetConsentOptions): void {
+    this.setConsent(true, options);
   }
 
-  public optOut(): void {
-    this.setConsent(false);
+  public optOut(options?: SetConsentOptions): void {
+    this.setConsent(false, options);
+  }
+
+  public getConsent(): boolean {
+    return this.consentGranted;
+  }
+
+  public getConsentState(): AnalyticsConsentState {
+    const persisted = this.readPersistedConsentSync();
+    if (persisted === true) {
+      return 'granted';
+    }
+    if (persisted === false) {
+      return 'denied';
+    }
+    return this.consentGranted ? 'granted' : 'unknown';
   }
 
   /**
@@ -214,6 +254,7 @@ export class AnalyticsClient {
       userId: normalizedUserId,
       properties: this.withRuntimeMetadata(traits, sessionId),
       platform: this.platform,
+      projectSurface: this.projectSurface,
       appVersion: this.appVersion,
       ...this.withEventContext(),
       type: 'identify',
@@ -273,6 +314,7 @@ export class AnalyticsClient {
       userId: this.userId,
       properties: this.withRuntimeMetadata(properties, sessionId),
       platform: this.platform,
+      projectSurface: this.projectSurface,
       appVersion: this.appVersion,
       ...this.withEventContext(),
       type: 'track',
@@ -525,6 +567,7 @@ export class AnalyticsClient {
       userId: this.userId,
       properties: this.withRuntimeMetadata(properties, sessionId),
       platform: this.platform,
+      projectSurface: this.projectSurface,
       appVersion: this.appVersion,
       ...this.withEventContext(),
       type: 'screen',
@@ -564,6 +607,7 @@ export class AnalyticsClient {
       userId: this.userId,
       properties: this.withRuntimeMetadata({ message, rating, ...properties }, sessionId),
       platform: this.platform,
+      projectSurface: this.projectSurface,
       appVersion: this.appVersion,
       ...this.withEventContext(),
       type: 'feedback',
@@ -665,6 +709,37 @@ export class AnalyticsClient {
         delay *= 2;
       }
     }
+  }
+
+  private parsePersistedConsent(raw: string | null): boolean | null {
+    if (raw === 'granted') {
+      return true;
+    }
+    if (raw === 'denied') {
+      return false;
+    }
+    return null;
+  }
+
+  private readPersistedConsentSync(): boolean | null {
+    if (!this.persistConsentState || this.storageReadsAreAsync) {
+      return null;
+    }
+    return this.parsePersistedConsent(readStorageSync(this.storage, this.consentStorageKey));
+  }
+
+  private async readPersistedConsentAsync(): Promise<boolean | null> {
+    if (!this.persistConsentState) {
+      return null;
+    }
+    return this.parsePersistedConsent(await readStorageAsync(this.storage, this.consentStorageKey));
+  }
+
+  private writePersistedConsent(granted: boolean): void {
+    if (!this.persistConsentState) {
+      return;
+    }
+    writeStorageSync(this.storage, this.consentStorageKey, granted ? 'granted' : 'denied');
   }
 
   private startAutoFlush(): void {
@@ -775,10 +850,11 @@ export class AnalyticsClient {
     }
 
     try {
-      const [storedAnonId, storedSessionId, storedLastSeen] = await Promise.all([
+      const [storedAnonId, storedSessionId, storedLastSeen, storedConsent] = await Promise.all([
         readStorageAsync(this.storage, DEVICE_ID_KEY),
         readStorageAsync(this.storage, SESSION_ID_KEY),
         readStorageAsync(this.storage, LAST_SEEN_KEY),
+        this.readPersistedConsentAsync(),
       ]);
 
       if (!this.hasExplicitAnonId && storedAnonId) {
@@ -790,6 +866,14 @@ export class AnalyticsClient {
         if (Number.isFinite(lastSeenMs) && Date.now() - lastSeenMs < this.sessionTimeoutMs) {
           this.sessionId = storedSessionId;
           this.inMemoryLastSeenMs = Date.now();
+        }
+      }
+
+      if (!this.hasExplicitInitialConsent && typeof storedConsent === 'boolean') {
+        this.consentGranted = this.hasIngestConfig && storedConsent;
+        if (!this.consentGranted) {
+          this.queue = [];
+          this.deferredEventsBeforeHydration = [];
         }
       }
 
@@ -1065,6 +1149,19 @@ export class AnalyticsClient {
       return 'windows';
     }
     return undefined;
+  }
+
+  private normalizeProjectSurfaceOption(value: unknown): string | undefined {
+    const normalized = this.readRequiredStringOption(value).toLowerCase();
+    if (!normalized) {
+      return undefined;
+    }
+
+    if (normalized.length > 64) {
+      return normalized.slice(0, 64);
+    }
+
+    return normalized;
   }
 
   private log(message: string, data?: unknown): void {

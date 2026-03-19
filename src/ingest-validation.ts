@@ -73,6 +73,10 @@ const validateEvent = (event: unknown, index: number): IngestValidationResult =>
     return { success: false, reason: `events[${index}].platform is invalid` };
   }
 
+  if (!isOptionalStringMax(event.projectSurface, 64)) {
+    return { success: false, reason: `events[${index}].projectSurface is invalid` };
+  }
+
   if (!isOptionalStringMax(event.appVersion, 64)) {
     return { success: false, reason: `events[${index}].appVersion is invalid` };
   }

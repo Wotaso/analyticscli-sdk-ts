@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   init,
+  initConsentFirst,
   initAsync,
   initFromEnv,
   ONBOARDING_EVENTS,
@@ -170,6 +171,25 @@ test('init() supports the short apiKey form', async () => {
   });
 });
 
+test('initConsentFirst() starts with tracking disabled until optIn()', async () => {
+  await withMockedGlobals(async (calls) => {
+    const client = initConsentFirst('pi_live_test');
+
+    try {
+      client.track('onboarding:start');
+      await client.flush();
+      assert.equal(calls.length, 0);
+
+      client.optIn();
+      client.track('onboarding:complete');
+      await client.flush();
+      assert.equal(calls.length, 1);
+    } finally {
+      client.shutdown();
+    }
+  });
+});
+
 test('init() tolerates window objects without addEventListener', () => {
   const hadWindow = Object.prototype.hasOwnProperty.call(globalThis, 'window');
   const originalWindow = (globalThis as { window?: unknown }).window;
@@ -291,6 +311,31 @@ test('normalizes macos platform option to canonical mac', async () => {
         events: Array<{ platform?: string }>;
       };
       assert.equal(payload.events[0]?.platform, 'mac');
+    } finally {
+      client.shutdown();
+    }
+  });
+});
+
+test('includes projectSurface on emitted events when configured', async () => {
+  await withMockedGlobals(async (calls) => {
+    const client = init({
+      apiKey: 'pi_live_test',
+      projectSurface: 'Dashboard',
+      batchSize: 20,
+      flushIntervalMs: 60_000,
+      maxRetries: 0,
+    });
+
+    try {
+      client.track('onboarding:start');
+      await client.flush();
+
+      assert.equal(calls.length, 1);
+      const payload = JSON.parse(String(calls[0]?.init?.body)) as {
+        events: Array<{ projectSurface?: string }>;
+      };
+      assert.equal(payload.events[0]?.projectSurface, 'dashboard');
     } finally {
       client.shutdown();
     }
@@ -539,6 +584,113 @@ test('optOut() disables enqueue and prevents network calls', async () => {
       assert.equal(calls.length, 0);
     } finally {
       client.shutdown();
+    }
+  });
+});
+
+test('initialConsentGranted=false requires explicit optIn() before tracking', async () => {
+  await withMockedGlobals(async (calls) => {
+    const client = init({
+      apiKey: 'pi_live_test',
+      endpoint: 'https://collector.analyticscli.com',
+      batchSize: 20,
+      flushIntervalMs: 60_000,
+      maxRetries: 0,
+      initialConsentGranted: false,
+    });
+
+    try {
+      client.track('onboarding:start');
+      await client.flush();
+      assert.equal(calls.length, 0);
+
+      client.optIn();
+      client.track('onboarding:complete');
+      await client.flush();
+
+      assert.equal(calls.length, 1);
+      const payload = JSON.parse(String(calls[0]?.init?.body)) as {
+        events: Array<{ eventName: string }>;
+      };
+      assert.deepEqual(payload.events.map((event) => event.eventName), ['onboarding:complete']);
+    } finally {
+      client.shutdown();
+    }
+  });
+});
+
+test('stored denied consent disables tracking without explicit override', async () => {
+  await withMockedGlobals(async (calls) => {
+    globalThis.localStorage.setItem('analyticscli:consent:v1', 'denied');
+    const storage = globalThis.localStorage as unknown as {
+      getItem: (key: string) => string | null;
+      setItem: (key: string, value: string) => void;
+      removeItem: (key: string) => void;
+    };
+
+    const client = init({
+      apiKey: 'pi_live_test',
+      endpoint: 'https://collector.analyticscli.com',
+      batchSize: 20,
+      flushIntervalMs: 60_000,
+      maxRetries: 0,
+      storage,
+    });
+
+    try {
+      assert.equal(client.getConsent(), false);
+      assert.equal(client.getConsentState(), 'denied');
+      client.track('onboarding:start');
+      await client.flush();
+      assert.equal(calls.length, 0);
+    } finally {
+      client.shutdown();
+    }
+  });
+});
+
+test('consent changes persist across client instances by default', async () => {
+  await withMockedGlobals(async (calls) => {
+    const storage = globalThis.localStorage as unknown as {
+      getItem: (key: string) => string | null;
+      setItem: (key: string, value: string) => void;
+      removeItem: (key: string) => void;
+    };
+
+    const first = init({
+      apiKey: 'pi_live_test',
+      endpoint: 'https://collector.analyticscli.com',
+      batchSize: 20,
+      flushIntervalMs: 60_000,
+      maxRetries: 0,
+      storage,
+    });
+
+    try {
+      first.optOut();
+      assert.equal(globalThis.localStorage.getItem('analyticscli:consent:v1'), 'denied');
+    } finally {
+      first.shutdown();
+    }
+
+    const second = init({
+      apiKey: 'pi_live_test',
+      endpoint: 'https://collector.analyticscli.com',
+      batchSize: 20,
+      flushIntervalMs: 60_000,
+      maxRetries: 0,
+      storage,
+    });
+
+    try {
+      assert.equal(second.getConsent(), false);
+      second.track('onboarding:start');
+      await second.flush();
+      assert.equal(calls.length, 0);
+      second.optIn();
+      assert.equal(globalThis.localStorage.getItem('analyticscli:consent:v1'), 'granted');
+    } finally {
+      second.shutdown();
     }
   });
 });
