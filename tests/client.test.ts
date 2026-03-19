@@ -619,7 +619,7 @@ test('initialConsentGranted=false requires explicit optIn() before tracking', as
   });
 });
 
-test('stored denied consent disables tracking without explicit override', async () => {
+test('persisted consent in storage is ignored in strict-only mode', async () => {
   await withMockedGlobals(async (calls) => {
     globalThis.localStorage.setItem('analyticscli:consent:v1', 'denied');
     const storage = globalThis.localStorage as unknown as {
@@ -638,18 +638,18 @@ test('stored denied consent disables tracking without explicit override', async 
     });
 
     try {
-      assert.equal(client.getConsent(), false);
-      assert.equal(client.getConsentState(), 'denied');
+      assert.equal(client.getConsent(), true);
+      assert.equal(client.getConsentState(), 'granted');
       client.track('onboarding:start');
       await client.flush();
-      assert.equal(calls.length, 0);
+      assert.equal(calls.length, 1);
     } finally {
       client.shutdown();
     }
   });
 });
 
-test('consent changes persist across client instances by default', async () => {
+test('consent changes do not persist across client instances in strict-only mode', async () => {
   await withMockedGlobals(async (calls) => {
     const storage = globalThis.localStorage as unknown as {
       getItem: (key: string) => string | null;
@@ -668,7 +668,7 @@ test('consent changes persist across client instances by default', async () => {
 
     try {
       first.optOut();
-      assert.equal(globalThis.localStorage.getItem('analyticscli:consent:v1'), 'denied');
+      assert.equal(globalThis.localStorage.getItem('analyticscli:consent:v1'), null);
     } finally {
       first.shutdown();
     }
@@ -683,12 +683,12 @@ test('consent changes persist across client instances by default', async () => {
     });
 
     try {
-      assert.equal(second.getConsent(), false);
+      assert.equal(second.getConsent(), true);
       second.track('onboarding:start');
       await second.flush();
-      assert.equal(calls.length, 0);
+      assert.equal(calls.length, 1);
       second.optIn();
-      assert.equal(globalThis.localStorage.getItem('analyticscli:consent:v1'), 'granted');
+      assert.equal(globalThis.localStorage.getItem('analyticscli:consent:v1'), null);
     } finally {
       second.shutdown();
     }
@@ -918,7 +918,7 @@ test('createPaywallTracker() rotates paywallEntryId per shown event and keeps of
   });
 });
 
-test('setUser() identifies on login and clears user linkage on logout-style calls', async () => {
+test('setUser()/identify() are no-ops for identity linkage in strict-only mode', async () => {
   await withMockedGlobals(async (calls) => {
     const client = init({
       apiKey: 'pi_live_test',
@@ -930,6 +930,7 @@ test('setUser() identifies on login and clears user linkage on logout-style call
 
     try {
       client.setUser(' user_123 ', { plan: 'pro' });
+      client.identify('user_999', { plan: 'enterprise' });
       client.track('feature:opened');
       client.setUser('');
       client.track('feature:closed');
@@ -943,12 +944,52 @@ test('setUser() identifies on login and clears user linkage on logout-style call
 
       assert.deepEqual(
         payload.events.map((event) => event.eventName),
-        ['identify', 'feature:opened', 'feature:closed'],
+        ['feature:opened', 'feature:closed'],
       );
-      assert.equal(payload.events[0]?.userId, 'user_123');
-      assert.equal(payload.events[1]?.userId, 'user_123');
-      assert.equal(payload.events[2]?.userId, null);
-      assert.equal(payload.events[0]?.properties?.plan, 'pro');
+      assert.equal(payload.events[0]?.userId, null);
+      assert.equal(payload.events[1]?.userId, null);
+    } finally {
+      client.shutdown();
+    }
+  });
+});
+
+test('strict-only mode keeps identity ephemeral and ignores explicit identity overrides', async () => {
+  await withMockedGlobals(async (calls) => {
+    const client = init({
+      apiKey: 'pi_live_test',
+      endpoint: 'https://collector.analyticscli.com',
+      batchSize: 20,
+      flushIntervalMs: 60_000,
+      maxRetries: 0,
+      anonId: 'shared-anon',
+      sessionId: 'shared-session',
+    });
+
+    try {
+      client.setUser('user_123', { plan: 'pro' });
+      client.identify('user_456');
+      client.track('feature:opened');
+
+      await client.flush();
+
+      assert.equal(calls.length, 1);
+      const payload = JSON.parse(String(calls[0]?.init?.body)) as {
+        events: Array<{
+          eventName: string;
+          anonId: string;
+          sessionId: string;
+          userId?: string | null;
+          properties?: Record<string, unknown>;
+        }>;
+      };
+
+      assert.equal(payload.events.length, 1);
+      assert.equal(payload.events[0]?.eventName, 'feature:opened');
+      assert.equal(payload.events[0]?.userId, null);
+      assert.notEqual(payload.events[0]?.anonId, 'shared-anon');
+      assert.notEqual(payload.events[0]?.sessionId, 'shared-session');
+      assert.equal(globalThis.localStorage.length, 0);
     } finally {
       client.shutdown();
     }
@@ -995,6 +1036,82 @@ test('debug logging is disabled by default and enabled with debug=true', async (
     }
   } finally {
     console.debug = originalConsoleDebug;
+  }
+});
+
+test('strict-only mode disables cookie-based persistence even when cookieDomain is provided', async () => {
+  const calls: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];
+  const originalFetch = globalThis.fetch;
+  const originalDocument = (globalThis as typeof globalThis & { document?: unknown }).document;
+  const originalLocation = (globalThis as typeof globalThis & { location?: unknown }).location;
+  const originalLocalStorage = globalThis.localStorage;
+
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    calls.push({ input, init });
+    return new Response(JSON.stringify({ accepted: true }), { status: 202 });
+  }) as typeof globalThis.fetch;
+
+  const cookieDocument = createCookieDocument();
+  Object.defineProperty(globalThis, 'document', {
+    value: cookieDocument,
+    configurable: true,
+    writable: true,
+  });
+
+  Object.defineProperty(globalThis, 'location', {
+    value: { protocol: 'https:' },
+    configurable: true,
+    writable: true,
+  });
+
+  Reflect.deleteProperty(globalThis, 'localStorage');
+
+  const client = init({
+    apiKey: 'pi_live_test',
+    endpoint: 'https://collector.analyticscli.com',
+    cookieDomain: '.analyticscli.com',
+    batchSize: 20,
+    flushIntervalMs: 60_000,
+    maxRetries: 0,
+  });
+
+  try {
+    client.track('onboarding:start');
+    await client.flush();
+
+    assert.equal(calls.length, 1);
+    assert.equal(cookieDocument.cookie, '');
+  } finally {
+    client.shutdown();
+    globalThis.fetch = originalFetch;
+
+    if (originalDocument) {
+      Object.defineProperty(globalThis, 'document', {
+        value: originalDocument,
+        configurable: true,
+        writable: true,
+      });
+    } else {
+      Reflect.deleteProperty(globalThis, 'document');
+    }
+
+    if (originalLocation) {
+      Object.defineProperty(globalThis, 'location', {
+        value: originalLocation,
+        configurable: true,
+        writable: true,
+      });
+    } else {
+      Reflect.deleteProperty(globalThis, 'location');
+    }
+
+    if (originalLocalStorage) {
+      Object.defineProperty(globalThis, 'localStorage', {
+        value: originalLocalStorage,
+        configurable: true,
+        writable: true,
+      });
+    }
   }
 });
 
@@ -1330,7 +1447,7 @@ test('trackPaywallEvent() ignores paywallEntryId in direct calls', async () => {
   });
 });
 
-test('cookieDomain enables cross-subdomain id persistence via cookies', async () => {
+test('strict-only mode ignores cookieDomain and does not persist ids via cookies', async () => {
   const calls: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];
   const originalFetch = globalThis.fetch;
   const originalDocument = (globalThis as typeof globalThis & { document?: unknown }).document;
@@ -1371,8 +1488,7 @@ test('cookieDomain enables cross-subdomain id persistence via cookies', async ()
 
     assert.equal(calls.length, 1);
     const cookie = String((globalThis as typeof globalThis & { document: { cookie: string } }).document.cookie);
-    assert.match(cookie, /pi_device_id=/);
-    assert.match(cookie, /pi_session_id=/);
+    assert.equal(cookie, '');
   } finally {
     client.shutdown();
     globalThis.fetch = originalFetch;
@@ -1597,7 +1713,7 @@ test('trackOnboardingSurveyResponse() emits anonymized survey response payloads'
   });
 });
 
-test('initAsync() hydrates persisted ids from async storage adapters', async () => {
+test('initAsync() ignores persisted ids from async storage adapters in strict-only mode', async () => {
   await withMockedGlobals(async (calls) => {
     const now = Date.now();
     const backingStore = new Map<string, string>([
@@ -1631,16 +1747,16 @@ test('initAsync() hydrates persisted ids from async storage adapters', async () 
       };
       const event = payload.events[0];
 
-      assert.equal(event?.anonId, 'persisted-device-id');
-      assert.equal(event?.sessionId, 'persisted-session-id');
-      assert.equal(event?.properties?.sessionEventIndex, 42);
+      assert.notEqual(event?.anonId, 'persisted-device-id');
+      assert.notEqual(event?.sessionId, 'persisted-session-id');
+      assert.equal(event?.properties?.sessionEventIndex, 1);
     } finally {
       client.shutdown();
     }
   });
 });
 
-test('init() defers event identity/session binding until async storage hydration completes', async () => {
+test('init() does not defer identity/session binding to async storage in strict-only mode', async () => {
   await withMockedGlobals(async (calls) => {
     const now = Date.now();
     const backingStore = new Map<string, string>([
@@ -1675,16 +1791,16 @@ test('init() defers event identity/session binding until async storage hydration
       };
       const event = payload.events[0];
 
-      assert.equal(event?.anonId, 'persisted-device-id');
-      assert.equal(event?.sessionId, 'persisted-session-id');
-      assert.equal(event?.properties?.sessionEventIndex, 42);
+      assert.notEqual(event?.anonId, 'persisted-device-id');
+      assert.notEqual(event?.sessionId, 'persisted-session-id');
+      assert.equal(event?.properties?.sessionEventIndex, 1);
     } finally {
       client.shutdown();
     }
   });
 });
 
-test('accepts AsyncStorage-style storage objects directly', async () => {
+test('ignores AsyncStorage-style storage objects in strict-only mode', async () => {
   await withMockedGlobals(async (calls) => {
     const now = Date.now();
     const backingStore = new Map<string, string>([
@@ -1736,9 +1852,9 @@ test('accepts AsyncStorage-style storage objects directly', async () => {
       };
       const event = payload.events[0];
 
-      assert.equal(event?.anonId, 'persisted-device-id');
-      assert.equal(event?.sessionId, 'persisted-session-id');
-      assert.equal(event?.properties?.sessionEventIndex, 42);
+      assert.notEqual(event?.anonId, 'persisted-device-id');
+      assert.notEqual(event?.sessionId, 'persisted-session-id');
+      assert.equal(event?.properties?.sessionEventIndex, 1);
     } finally {
       client.shutdown();
     }

@@ -226,22 +226,28 @@ export type AnalyticsClientOptions = {
    */
   initialConsentGranted?: boolean | null;
   /**
-   * Persists consent choices in storage (if available).
-   * Defaults to `true`.
+   * Ignored in current strict-only mode.
    */
   persistConsentState?: boolean | null;
   /**
    * Storage key for persisted consent state.
    * Defaults to `analyticscli:consent:v1`.
+   * Ignored in current strict-only mode.
    */
   consentStorageKey?: string | null;
   context?: EventContext | null;
   /**
    * Optional custom persistence adapter.
-   * If omitted, browser storage/cookies are used when available; otherwise in-memory IDs are used.
+   * Ignored in current strict-only mode.
    */
   storage?: AnalyticsStorageAdapter | null;
+  /**
+   * Ignored in current strict-only mode.
+   */
   anonId?: string | null;
+  /**
+   * Ignored in current strict-only mode.
+   */
   sessionId?: string | null;
   sessionTimeoutMs?: number | null;
   /**
@@ -253,12 +259,14 @@ export type AnalyticsClientOptions = {
   /**
    * Optional cookie domain to persist device/session ids across subdomains.
    * Example: `.analyticscli.com`
+   * Ignored in current strict-only mode.
    */
   cookieDomain?: string | null;
   cookieMaxAgeSeconds?: number | null;
   /**
    * Enables cookie-backed id/session persistence.
    * Defaults to true when `cookieDomain` is provided, otherwise false.
+   * Ignored in current strict-only mode.
    */
   useCookieStorage?: boolean | null;
 };

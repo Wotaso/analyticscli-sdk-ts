@@ -79,7 +79,6 @@ export const initConsentFirst = (input: InitInput = {}): AnalyticsClient => {
   return new AnalyticsClient({
     ...normalized,
     initialConsentGranted: false,
-    persistConsentState: normalized.persistConsentState ?? true,
   });
 };
 

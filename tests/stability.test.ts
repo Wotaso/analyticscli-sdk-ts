@@ -68,7 +68,8 @@ test('public SDK API remains no-throw under transient network failures', async (
     const secondPayload = JSON.parse(String(calls[1]?.init?.body)) as {
       events: Array<{ eventName: string }>;
     };
-    assert.ok(secondPayload.events.length >= 11);
+    // strict-only mode does not emit identity linkage events from identify()/setUser(...).
+    assert.ok(secondPayload.events.length >= 9);
   } finally {
     client.shutdown();
     globalThis.fetch = originalFetch;

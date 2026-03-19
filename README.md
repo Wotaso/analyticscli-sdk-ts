@@ -122,19 +122,19 @@ without overloading runtime `platform` (`web`, `ios`, `android`, ...).
 example, when React effects fire twice or the screen remounts). It does not
 dedupe paywall events, purchase events, or `screen(...)` calls.
 
-`storage` is optional, but recommended in React Native. With AsyncStorage, the
-SDK can persist `anonId` and `sessionId` across app restarts so funnels and
-journeys stay connected. Without storage, IDs are memory-only and reset on
-cold start.
+The SDK currently runs in strict privacy mode:
+- no persistent SDK identity across app/browser restarts
+- no cookie-domain identity continuity
+- `identify()` / `setUser(...)` do not create user linkage events
 
 `initialConsentGranted` is optional:
 - default: `true` when `apiKey` is present (backward-compatible)
 - set to `false` for consent-first integration, then call `analytics.optIn()`
   after explicit user consent.
 
-`persistConsentState` is optional (default `true`) and stores consent choice in
-the configured storage. `consentStorageKey` customizes that storage key
-(default `analyticscli:consent:v1`).
+`persistConsentState`, `consentStorageKey`, `storage`, `cookieDomain`, and
+`useCookieStorage` are accepted for backward compatibility but ignored in the
+current strict-only behavior.
 
 Common consent APIs:
 - `analytics.getConsent()` -> current in-memory consent
@@ -142,23 +142,8 @@ Common consent APIs:
 - `analytics.optIn()` / `analytics.optOut()`
 - `analytics.setConsent(true|false, { persist: true|false })`
 
-If your store already exposes `getItem` / `setItem` / `removeItem` (for example
-AsyncStorage, localStorage-like stores, or Expo key-value stores with the same
-method names), pass it directly as `storage`.
-
-If your store uses different method names, pass a small adapter object:
-
-```ts
-storage: {
-  getItem: (key) => store.read(key),
-  setItem: (key, value) => store.write(key, value),
-  removeItem: (key) => store.delete(key),
-}
-```
-
 `analytics.ready()` does not "start" tracking. If consent is granted, the SDK
-starts on `init(...)`, and with async storage it defers pre-hydration events
-internally.
+starts on `init(...)`.
 Call `ready()` (or use `initAsync(...)`) only when your app should block until
 hydration is finished before continuing first-flow logic.
 
@@ -167,7 +152,7 @@ Only the publishable API key (`apiKey`) is needed for SDK init calls.
 The SDK uses the default collector endpoint internally.
 In host apps, do not pass `endpoint` and do not add `ANALYTICSCLI_ENDPOINT` env vars.
 
-For browser subdomain continuity, set `cookieDomain` (for example `.analyticscli.com`).
+Browser cookie-domain continuity is disabled in strict-only mode.
 For redirects across different domains, use a backend-issued short-lived handoff token rather than relying on third-party cookies.
 
 ## Releases

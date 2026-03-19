@@ -11,7 +11,6 @@ import {
 import { validateIngestBatch, type IngestBatch } from './ingest-validation.js';
 import {
   DEFAULT_COLLECTOR_ENDPOINT,
-  DEFAULT_COOKIE_MAX_AGE_SECONDS,
   DEFAULT_SESSION_TIMEOUT_MS,
   DEVICE_ID_KEY,
   LAST_SEEN_KEY,
@@ -20,7 +19,6 @@ import {
   SESSION_ID_KEY,
 } from './constants.js';
 import {
-  combineStorageAdapters,
   detectDefaultAppVersion,
   detectDefaultPlatform,
   detectRuntimeEnv,
@@ -28,8 +26,6 @@ import {
   randomId,
   readStorageAsync,
   readStorageSync,
-  resolveBrowserStorageAdapter,
-  resolveCookieStorageAdapter,
   sanitizeProperties,
   toStableKey,
   writeStorageSync,
@@ -116,28 +112,30 @@ export class AnalyticsClient {
       this.readRequiredStringOption(normalizedOptions.appVersion) || detectDefaultAppVersion();
     this.context = { ...(normalizedOptions.context ?? {}) };
     this.runtimeEnv = detectRuntimeEnv();
-    const useCookieStorage = normalizedOptions.useCookieStorage ?? Boolean(normalizedOptions.cookieDomain);
-    const cookieStorage = resolveCookieStorageAdapter(
-      useCookieStorage,
-      normalizedOptions.cookieDomain ?? undefined,
-      normalizedOptions.cookieMaxAgeSeconds ?? DEFAULT_COOKIE_MAX_AGE_SECONDS,
-    );
-    const browserStorage = resolveBrowserStorageAdapter();
-    this.storage =
-      normalizedOptions.storage ??
-      (cookieStorage && browserStorage
-        ? combineStorageAdapters(cookieStorage, browserStorage)
-        : cookieStorage ?? browserStorage);
-    this.storageReadsAreAsync = this.detectAsyncStorageReads();
-    this.persistConsentState = normalizedOptions.persistConsentState ?? true;
+    if (normalizedOptions.storage) {
+      this.log('Ignoring custom storage adapter because SDK runs in strict-only mode');
+    }
+    if (normalizedOptions.cookieDomain || normalizedOptions.useCookieStorage) {
+      this.log('Ignoring cookie persistence settings because SDK runs in strict-only mode');
+    }
+    if (normalizedOptions.persistConsentState || normalizedOptions.consentStorageKey) {
+      this.log('Ignoring consent persistence settings because SDK runs in strict-only mode');
+    }
+    if (normalizedOptions.anonId || normalizedOptions.sessionId) {
+      this.log('Ignoring explicit anonId/sessionId because SDK runs in strict-only mode');
+    }
+
+    this.storage = null;
+    this.storageReadsAreAsync = false;
+    this.persistConsentState = false;
     this.consentStorageKey =
       this.readRequiredStringOption(normalizedOptions.consentStorageKey) || DEFAULT_CONSENT_STORAGE_KEY;
     this.hasExplicitInitialConsent = typeof normalizedOptions.initialConsentGranted === 'boolean';
     this.sessionTimeoutMs = normalizedOptions.sessionTimeoutMs ?? DEFAULT_SESSION_TIMEOUT_MS;
     this.dedupeOnboardingStepViewsPerSession =
       normalizedOptions.dedupeOnboardingStepViewsPerSession ?? true;
-    const providedAnonId = normalizedOptions.anonId?.trim();
-    const providedSessionId = normalizedOptions.sessionId?.trim();
+    const providedAnonId = '';
+    const providedSessionId = '';
     this.hasExplicitAnonId = Boolean(providedAnonId);
     this.hasExplicitSessionId = Boolean(providedSessionId);
 
@@ -225,40 +223,8 @@ export class AnalyticsClient {
    * Anonymous history remains linked by anonId/sessionId.
    */
   public identify(userId: string, traits?: EventProperties): void {
-    if (!this.consentGranted) {
-      return;
-    }
-
-    const normalizedUserId = this.readRequiredStringOption(userId);
-    if (!normalizedUserId) {
-      this.log('Dropping identify call without required `userId`');
-      return;
-    }
-
-    if (this.shouldDeferEventsUntilHydrated()) {
-      const deferredTraits = this.cloneProperties(traits);
-      this.deferEventUntilHydrated(() => {
-        this.identify(normalizedUserId, deferredTraits);
-      });
-      return;
-    }
-
-    this.userId = normalizedUserId;
-    const sessionId = this.getSessionId();
-    this.enqueue({
-      eventId: randomId(),
-      eventName: 'identify',
-      ts: nowIso(),
-      sessionId,
-      anonId: this.anonId,
-      userId: normalizedUserId,
-      properties: this.withRuntimeMetadata(traits, sessionId),
-      platform: this.platform,
-      projectSurface: this.projectSurface,
-      appVersion: this.appVersion,
-      ...this.withEventContext(),
-      type: 'identify',
-    });
+    void userId;
+    void traits;
   }
 
   /**
@@ -267,15 +233,9 @@ export class AnalyticsClient {
    * - pass null/undefined/empty string to clear user linkage
    */
   public setUser(userId: string | null | undefined, traits?: EventProperties): void {
-    const normalizedUserId =
-      typeof userId === 'string' ? this.readRequiredStringOption(userId) : '';
-
-    if (!normalizedUserId) {
-      this.clearUser();
-      return;
-    }
-
-    this.identify(normalizedUserId, traits);
+    void userId;
+    void traits;
+    this.clearUser();
   }
 
   /**
