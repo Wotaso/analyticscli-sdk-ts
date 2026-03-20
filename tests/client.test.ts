@@ -1076,6 +1076,65 @@ test('enableFullTrackingWithoutConsent=true enables full tracking immediately', 
   });
 });
 
+test('setFullTrackingConsent() is a no-op in strict and always_on identity modes', async () => {
+  await withMockedGlobals(async (calls) => {
+    const storage = globalThis.localStorage as unknown as {
+      getItem: (key: string) => string | null;
+      setItem: (key: string, value: string) => void;
+      removeItem: (key: string) => void;
+    };
+
+    const strictClient = init({
+      apiKey: 'pi_live_test',
+      endpoint: 'https://collector.analyticscli.com',
+      storage,
+      identityTrackingMode: 'strict',
+      batchSize: 20,
+      flushIntervalMs: 60_000,
+      maxRetries: 0,
+    });
+    const alwaysOnClient = init({
+      apiKey: 'pi_live_test',
+      endpoint: 'https://collector.analyticscli.com',
+      storage,
+      identityTrackingMode: 'always_on',
+      batchSize: 20,
+      flushIntervalMs: 60_000,
+      maxRetries: 0,
+    });
+
+    try {
+      strictClient.setFullTrackingConsent(true);
+      strictClient.identify('strict_user');
+      strictClient.track('strict:event');
+      await strictClient.flush();
+
+      alwaysOnClient.setFullTrackingConsent(false);
+      alwaysOnClient.identify('always_user');
+      alwaysOnClient.track('always:event');
+      await alwaysOnClient.flush();
+
+      assert.equal(calls.length, 2);
+
+      const strictPayload = JSON.parse(String(calls[0]?.init?.body)) as {
+        events: Array<{ eventName: string; userId?: string | null }>;
+      };
+      assert.deepEqual(strictPayload.events.map((event) => event.eventName), ['strict:event']);
+      assert.equal(strictPayload.events[0]?.userId, null);
+
+      const alwaysPayload = JSON.parse(String(calls[1]?.init?.body)) as {
+        events: Array<{ eventName: string; userId?: string | null }>;
+      };
+      assert.deepEqual(alwaysPayload.events.map((event) => event.eventName), ['identify', 'always:event']);
+      assert.equal(alwaysPayload.events[0]?.userId, 'always_user');
+      assert.equal(alwaysPayload.events[1]?.userId, 'always_user');
+    } finally {
+      strictClient.shutdown();
+      alwaysOnClient.shutdown();
+    }
+  });
+});
+
 test('debug logging is disabled by default and enabled with debug=true', async () => {
   const originalConsoleDebug = console.debug;
   const debugCalls: unknown[][] = [];

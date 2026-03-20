@@ -1,11 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  combineStorageAdapters,
   detectDefaultAppVersion,
   detectDefaultPlatform,
   detectRuntimeEnv,
   readStorageAsync,
   readStorageSync,
+  resolveCookieStorageAdapter,
   resolveBrowserStorageAdapter,
   sanitizeProperties,
   toNumericBucket,
@@ -174,6 +176,92 @@ test('resolveBrowserStorageAdapter uses provided localStorage implementation', a
     storage?.removeItem?.('alpha');
     assert.equal(storage?.getItem('alpha'), null);
   });
+});
+
+test('resolveCookieStorageAdapter reads/writes/removes cookies and tolerates malformed encoding', async () => {
+  const cookieStore = new Map<string, string>();
+  const cookieWrites: string[] = [];
+  const documentLike = {
+    get cookie() {
+      return Array.from(cookieStore.entries())
+        .map(([key, value]) => `${key}=${value}`)
+        .join('; ');
+    },
+    set cookie(value: string) {
+      cookieWrites.push(value);
+      const [pair, ...attributes] = value.split(';').map((part) => part.trim());
+      const [encodedKey, encodedValue = ''] = pair.split('=');
+      const maxAge = attributes.find((attribute) => attribute.toLowerCase().startsWith('max-age='));
+      if (!encodedKey) {
+        return;
+      }
+      if (maxAge?.toLowerCase() === 'max-age=0') {
+        cookieStore.delete(encodedKey);
+        return;
+      }
+      cookieStore.set(encodedKey, encodedValue);
+    },
+  };
+
+  await withGlobalProperty('document' as keyof typeof globalThis, documentLike, async () => {
+    await withGlobalProperty(
+      'location' as keyof typeof globalThis,
+      { protocol: 'https:' },
+      () => {
+        const storage = resolveCookieStorageAdapter(true, ' .example.com ', 60);
+        assert.ok(storage);
+
+        storage?.setItem('user id', 'hello/world');
+        assert.equal(storage?.getItem('user id'), 'hello/world');
+        assert.match(cookieWrites[0] ?? '', /Domain=\.example\.com/);
+        assert.match(cookieWrites[0] ?? '', /Secure/);
+
+        cookieStore.set('broken', '%E0%A4%A');
+        assert.equal(storage?.getItem('broken'), '%E0%A4%A');
+
+        storage?.removeItem?.('user id');
+        assert.equal(storage?.getItem('user id'), null);
+      },
+    );
+  });
+});
+
+test('combineStorageAdapters prefers primary values and mirrors writes/removals', () => {
+  const primaryStore = new Map<string, string>([['primary', 'one']]);
+  const secondaryStore = new Map<string, string>([['secondary', 'two']]);
+
+  const combined = combineStorageAdapters(
+    {
+      getItem: (key: string) => primaryStore.get(key) ?? null,
+      setItem: (key: string, value: string) => {
+        primaryStore.set(key, value);
+      },
+      removeItem: (key: string) => {
+        primaryStore.delete(key);
+      },
+    },
+    {
+      getItem: (key: string) => secondaryStore.get(key) ?? null,
+      setItem: (key: string, value: string) => {
+        secondaryStore.set(key, value);
+      },
+      removeItem: (key: string) => {
+        secondaryStore.delete(key);
+      },
+    },
+  );
+
+  assert.equal(combined.getItem('primary'), 'one');
+  assert.equal(combined.getItem('secondary'), 'two');
+  assert.equal(combined.getItem('missing'), null);
+
+  combined.setItem('shared', 'value');
+  assert.equal(primaryStore.get('shared'), 'value');
+  assert.equal(secondaryStore.get('shared'), 'value');
+
+  combined.removeItem?.('shared');
+  assert.equal(primaryStore.has('shared'), false);
+  assert.equal(secondaryStore.has('shared'), false);
 });
 
 test('property and survey helpers normalize payload values', () => {
