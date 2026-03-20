@@ -918,7 +918,7 @@ test('createPaywallTracker() rotates paywallEntryId per shown event and keeps of
   });
 });
 
-test('setUser()/identify() are no-ops for identity linkage in strict-only mode', async () => {
+test('setUser()/identify() are blocked before full-tracking consent in consent-gated mode', async () => {
   await withMockedGlobals(async (calls) => {
     const client = init({
       apiKey: 'pi_live_test',
@@ -954,7 +954,7 @@ test('setUser()/identify() are no-ops for identity linkage in strict-only mode',
   });
 });
 
-test('strict-only mode keeps identity ephemeral and ignores explicit identity overrides', async () => {
+test('consent-gated default keeps identity ephemeral and ignores explicit identity overrides before full-tracking consent', async () => {
   await withMockedGlobals(async (calls) => {
     const client = init({
       apiKey: 'pi_live_test',
@@ -990,6 +990,86 @@ test('strict-only mode keeps identity ephemeral and ignores explicit identity ov
       assert.notEqual(payload.events[0]?.anonId, 'shared-anon');
       assert.notEqual(payload.events[0]?.sessionId, 'shared-session');
       assert.equal(globalThis.localStorage.length, 0);
+    } finally {
+      client.shutdown();
+    }
+  });
+});
+
+test('setFullTrackingConsent(true) enables persistence and identity linkage', async () => {
+  await withMockedGlobals(async (calls) => {
+    const storage = globalThis.localStorage as unknown as {
+      getItem: (key: string) => string | null;
+      setItem: (key: string, value: string) => void;
+      removeItem: (key: string) => void;
+    };
+    const client = init({
+      apiKey: 'pi_live_test',
+      endpoint: 'https://collector.analyticscli.com',
+      storage,
+      batchSize: 20,
+      flushIntervalMs: 60_000,
+      maxRetries: 0,
+    });
+
+    try {
+      client.setFullTrackingConsent(true);
+      client.setUser('user_123', { plan: 'pro' });
+      client.track('feature:opened');
+      await client.flush();
+
+      assert.equal(calls.length, 1);
+      const payload = JSON.parse(String(calls[0]?.init?.body)) as {
+        events: Array<{ eventName: string; userId?: string | null }>;
+      };
+
+      assert.deepEqual(
+        payload.events.map((event) => event.eventName),
+        ['identify', 'feature:opened'],
+      );
+      assert.equal(payload.events[0]?.userId, 'user_123');
+      assert.equal(payload.events[1]?.userId, 'user_123');
+      assert.equal(typeof globalThis.localStorage.getItem('pi_device_id'), 'string');
+      assert.equal(typeof globalThis.localStorage.getItem('pi_session_id'), 'string');
+    } finally {
+      client.shutdown();
+    }
+  });
+});
+
+test('enableFullTrackingWithoutConsent=true enables full tracking immediately', async () => {
+  await withMockedGlobals(async (calls) => {
+    const storage = globalThis.localStorage as unknown as {
+      getItem: (key: string) => string | null;
+      setItem: (key: string, value: string) => void;
+      removeItem: (key: string) => void;
+    };
+    const client = init({
+      apiKey: 'pi_live_test',
+      endpoint: 'https://collector.analyticscli.com',
+      storage,
+      batchSize: 20,
+      flushIntervalMs: 60_000,
+      maxRetries: 0,
+      enableFullTrackingWithoutConsent: true,
+    });
+
+    try {
+      client.identify('user_999', { plan: 'enterprise' });
+      client.track('feature:opened');
+      await client.flush();
+
+      assert.equal(calls.length, 1);
+      const payload = JSON.parse(String(calls[0]?.init?.body)) as {
+        events: Array<{ eventName: string; userId?: string | null }>;
+      };
+      assert.deepEqual(
+        payload.events.map((event) => event.eventName),
+        ['identify', 'feature:opened'],
+      );
+      assert.equal(payload.events[0]?.userId, 'user_999');
+      assert.equal(payload.events[1]?.userId, 'user_999');
+      assert.equal(typeof globalThis.localStorage.getItem('pi_device_id'), 'string');
     } finally {
       client.shutdown();
     }

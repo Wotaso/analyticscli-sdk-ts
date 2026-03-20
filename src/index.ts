@@ -25,6 +25,7 @@ export type {
   AnalyticsStorageAdapter,
   EventContext,
   EventProperties,
+  IdentityTrackingMode,
   InitInput,
   InitFromEnvMissingConfig,
   InitFromEnvMissingConfigMode,

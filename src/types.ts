@@ -173,11 +173,11 @@ export type QueuedEvent = {
 };
 
 export type AnalyticsConsentState = 'granted' | 'denied' | 'unknown';
+export type IdentityTrackingMode = 'strict' | 'consent_gated' | 'always_on';
 
 export type SetConsentOptions = {
   /**
-   * Legacy compatibility flag.
-   * Ignored in current strict-only mode.
+   * Whether consent state should be persisted to storage when enabled.
    */
   persist?: boolean;
 };
@@ -220,33 +220,48 @@ export type AnalyticsClientOptions = {
    */
   projectSurface?: string | null;
   /**
-   * Initial consent state.
-   * Defaults to `true` when `apiKey` is present (backward-compatible behavior).
-   * Set to `false` to enforce explicit `optIn()` / `setConsent(true)` before tracking.
+   * Initial event-collection consent state.
+   * Defaults to `true` when `apiKey` is present.
+   * Set to `false` to enforce explicit `optIn()` / `setConsent(true)` before event collection.
    */
   initialConsentGranted?: boolean | null;
   /**
-   * Ignored in current strict-only mode.
+   * Controls identity persistence behavior.
+   * - `consent_gated` (default): starts in strict mode and enables persistence only after consent
+   * - `always_on`: enables persistence immediately
+   * - `strict`: disables persistence and identity linkage
+   */
+  identityTrackingMode?: IdentityTrackingMode | null;
+  /**
+   * Boolean shortcut for `identityTrackingMode: 'always_on'`.
+   * Kept for host-app ergonomics.
+   */
+  enableFullTrackingWithoutConsent?: boolean | null;
+  /**
+   * Initial consent state for identity persistence when `identityTrackingMode='consent_gated'`.
+   * Defaults to `false`.
+   */
+  initialFullTrackingConsentGranted?: boolean | null;
+  /**
+   * Persist full-tracking consent in configured storage.
    */
   persistConsentState?: boolean | null;
   /**
-   * Storage key for persisted consent state.
+   * Storage key for persisted full-tracking consent state.
    * Defaults to `analyticscli:consent:v1`.
-   * Ignored in current strict-only mode.
    */
   consentStorageKey?: string | null;
   context?: EventContext | null;
   /**
-   * Optional custom persistence adapter.
-   * Ignored in current strict-only mode.
+   * Optional custom persistence adapter used when identity persistence is active.
    */
   storage?: AnalyticsStorageAdapter | null;
   /**
-   * Ignored in current strict-only mode.
+   * Optional explicit anonymous device id when identity persistence is active.
    */
   anonId?: string | null;
   /**
-   * Ignored in current strict-only mode.
+   * Optional explicit session id when identity persistence is active.
    */
   sessionId?: string | null;
   sessionTimeoutMs?: number | null;
@@ -257,14 +272,12 @@ export type AnalyticsClientOptions = {
    */
   dedupeOnboardingStepViewsPerSession?: boolean | null;
   /**
-   * Legacy cookie-domain option.
-   * Ignored in current strict-only mode.
+   * Cookie domain for optional cookie-backed persistence.
    */
   cookieDomain?: string | null;
   cookieMaxAgeSeconds?: number | null;
   /**
-   * Legacy cookie persistence option.
-   * Ignored in current strict-only mode.
+   * Enables cookie-backed persistence in browsers.
    */
   useCookieStorage?: boolean | null;
 };

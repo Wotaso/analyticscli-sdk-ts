@@ -52,7 +52,7 @@ analytics.trackOnboardingEvent(ONBOARDING_EVENTS.START, {
 - `init('<YOUR_APP_KEY>')`
 - `init({ ...allOptionsOptional })`
 
-Optional runtime pause/resume:
+Optional runtime collection pause/resume:
 
 ```ts
 import { init } from '@analyticscli/sdk';
@@ -61,6 +61,21 @@ const analytics = init('<YOUR_APP_KEY>');
 analytics.optOut(); // stop sending until optIn()
 // ...
 analytics.optIn();
+```
+
+Optional full-tracking consent gate (recommended default):
+
+```ts
+import { init } from '@analyticscli/sdk';
+
+const analytics = init('<YOUR_APP_KEY>');
+// default identityTrackingMode is "consent_gated"
+
+// user accepts full tracking in your consent UI
+analytics.setFullTrackingConsent(true);
+
+// user rejects full tracking but you still keep strict anonymous analytics
+analytics.setFullTrackingConsent(false);
 ```
 
 `initFromEnv()` remains available and resolves credentials from these env keys:
@@ -104,6 +119,8 @@ const analytics = init({
   projectSurface: 'app',
   appVersion: Application.nativeApplicationVersion,
   initialConsentGranted: true,
+  identityTrackingMode: 'consent_gated',
+  initialFullTrackingConsentGranted: false,
   dedupeOnboardingStepViewsPerSession: true,
 });
 ```
@@ -119,10 +136,18 @@ without overloading runtime `platform` (`web`, `ios`, `android`, ...).
 example, when React effects fire twice or the screen remounts). It does not
 dedupe paywall events, purchase events, or `screen(...)` calls.
 
-The SDK currently runs in strict privacy mode:
+Identity tracking modes:
+- `consent_gated` (default): starts strict (no persistent identity), enables persistence/linkage only after `setFullTrackingConsent(true)`
+- `always_on`: enables persistence/linkage immediately (`enableFullTrackingWithoutConsent: true` is a boolean shortcut)
+- `strict`: keeps strict anonymous behavior permanently
+
+Recommendation for global tenant apps:
+- keep `consent_gated` as default, especially when EU/EEA/UK traffic is in scope
+
+In strict phase (and in `strict` mode):
 - no persistent SDK identity across app/browser restarts
 - no cookie-domain identity continuity
-- `identify()` / `setUser(...)` do not create user linkage events
+- `identify()` / `setUser(...)` are ignored
 
 `initialConsentGranted` is optional:
 - default: `true` when `apiKey` is present
@@ -134,6 +159,11 @@ Runtime collection control APIs:
 - `analytics.optIn()` / `analytics.optOut()`
 - `analytics.setConsent(true|false)`
 
+Full-tracking control APIs:
+- `analytics.setFullTrackingConsent(true|false)`
+- `analytics.optInFullTracking()` / `analytics.optOutFullTracking()`
+- `analytics.isFullTrackingEnabled()`
+
 `analytics.ready()` does not "start" tracking. With default settings, tracking
 starts on `init(...)`.
 
@@ -142,7 +172,7 @@ Only the publishable API key (`apiKey`) is needed for SDK init calls.
 The SDK uses the default collector endpoint internally.
 In host apps, do not pass `endpoint` and do not add `ANALYTICSCLI_ENDPOINT` env vars.
 
-Browser cookie-domain continuity is disabled in strict-only mode.
+Browser cookie-domain continuity is disabled while strict mode is active.
 For redirects across different domains, use a backend-issued short-lived handoff token rather than relying on third-party cookies.
 
 ## Releases

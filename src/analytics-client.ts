@@ -11,6 +11,7 @@ import {
 import { validateIngestBatch, type IngestBatch } from './ingest-validation.js';
 import {
   DEFAULT_COLLECTOR_ENDPOINT,
+  DEFAULT_COOKIE_MAX_AGE_SECONDS,
   DEFAULT_SESSION_TIMEOUT_MS,
   DEVICE_ID_KEY,
   LAST_SEEN_KEY,
@@ -19,6 +20,7 @@ import {
   SESSION_ID_KEY,
 } from './constants.js';
 import {
+  combineStorageAdapters,
   detectDefaultAppVersion,
   detectDefaultPlatform,
   detectRuntimeEnv,
@@ -26,6 +28,8 @@ import {
   randomId,
   readStorageAsync,
   readStorageSync,
+  resolveBrowserStorageAdapter,
+  resolveCookieStorageAdapter,
   sanitizeProperties,
   toStableKey,
   writeStorageSync,
@@ -37,6 +41,7 @@ import type {
   AnalyticsStorageAdapter,
   EventContext,
   EventProperties,
+  IdentityTrackingMode,
   OnboardingEventProperties,
   OnboardingStepTracker,
   OnboardingTracker,
@@ -64,12 +69,15 @@ export class AnalyticsClient {
   private readonly platform: string | undefined;
   private readonly projectSurface: string | undefined;
   private readonly appVersion: string | undefined;
+  private readonly identityTrackingMode: IdentityTrackingMode;
   private context: EventContext;
-  private readonly storage: AnalyticsStorageAdapter | null;
-  private readonly storageReadsAreAsync: boolean;
+  private readonly configuredStorage: AnalyticsStorageAdapter | null;
+  private storage: AnalyticsStorageAdapter | null;
+  private storageReadsAreAsync: boolean;
   private readonly persistConsentState: boolean;
   private readonly consentStorageKey: string;
   private readonly hasExplicitInitialConsent: boolean;
+  private readonly hasExplicitInitialFullTrackingConsent: boolean;
   private readonly sessionTimeoutMs: number;
   private readonly dedupeOnboardingStepViewsPerSession: boolean;
   private readonly runtimeEnv: 'production' | 'development';
@@ -81,6 +89,7 @@ export class AnalyticsClient {
   private flushTimer: ReturnType<typeof setInterval> | null = null;
   private isFlushing = false;
   private consentGranted = true;
+  private fullTrackingConsentGranted = false;
   private userId: string | null = null;
   private anonId: string;
   private sessionId: string;
@@ -110,39 +119,44 @@ export class AnalyticsClient {
     this.projectSurface = this.normalizeProjectSurfaceOption(normalizedOptions.projectSurface);
     this.appVersion =
       this.readRequiredStringOption(normalizedOptions.appVersion) || detectDefaultAppVersion();
+    this.identityTrackingMode = this.resolveIdentityTrackingModeOption(normalizedOptions);
     this.context = { ...(normalizedOptions.context ?? {}) };
     this.runtimeEnv = detectRuntimeEnv();
-    if (normalizedOptions.storage) {
-      this.log('Ignoring custom storage adapter because SDK runs in strict-only mode');
-    }
-    if (normalizedOptions.cookieDomain || normalizedOptions.useCookieStorage) {
-      this.log('Ignoring cookie persistence settings because SDK runs in strict-only mode');
-    }
-    if (normalizedOptions.persistConsentState || normalizedOptions.consentStorageKey) {
-      this.log('Ignoring consent persistence settings because SDK runs in strict-only mode');
-    }
-    if (normalizedOptions.anonId || normalizedOptions.sessionId) {
-      this.log('Ignoring explicit anonId/sessionId because SDK runs in strict-only mode');
-    }
-
-    this.storage = null;
-    this.storageReadsAreAsync = false;
-    this.persistConsentState = false;
+    this.persistConsentState = normalizedOptions.persistConsentState ?? false;
     this.consentStorageKey =
       this.readRequiredStringOption(normalizedOptions.consentStorageKey) || DEFAULT_CONSENT_STORAGE_KEY;
     this.hasExplicitInitialConsent = typeof normalizedOptions.initialConsentGranted === 'boolean';
+    this.hasExplicitInitialFullTrackingConsent =
+      typeof normalizedOptions.initialFullTrackingConsentGranted === 'boolean';
     this.sessionTimeoutMs = normalizedOptions.sessionTimeoutMs ?? DEFAULT_SESSION_TIMEOUT_MS;
     this.dedupeOnboardingStepViewsPerSession =
       normalizedOptions.dedupeOnboardingStepViewsPerSession ?? true;
-    const providedAnonId = '';
-    const providedSessionId = '';
+    this.configuredStorage = this.resolveConfiguredStorage(normalizedOptions);
+
+    const persistedFullTrackingConsent = this.readPersistedConsentSync(this.configuredStorage);
+    const configuredFullTrackingConsent = normalizedOptions.initialFullTrackingConsentGranted;
+    const initialFullTrackingConsentGranted =
+      typeof configuredFullTrackingConsent === 'boolean'
+        ? configuredFullTrackingConsent
+        : persistedFullTrackingConsent ?? false;
+    this.fullTrackingConsentGranted = this.identityTrackingMode === 'always_on' || initialFullTrackingConsentGranted;
+
+    this.storage = this.isFullTrackingActive() ? this.configuredStorage : null;
+    this.storageReadsAreAsync = this.detectAsyncStorageReads();
+
+    const providedAnonId = this.isFullTrackingActive()
+      ? this.readRequiredStringOption(normalizedOptions.anonId)
+      : '';
+    const providedSessionId = this.isFullTrackingActive()
+      ? this.readRequiredStringOption(normalizedOptions.sessionId)
+      : '';
     this.hasExplicitAnonId = Boolean(providedAnonId);
     this.hasExplicitSessionId = Boolean(providedSessionId);
 
     this.anonId = providedAnonId || this.ensureDeviceId();
     this.sessionId = providedSessionId || this.ensureSessionId();
     this.sessionEventSeq = this.readSessionEventSeq(this.sessionId);
-    const persistedConsent = this.readPersistedConsentSync();
+    const persistedConsent = this.readPersistedConsentSync(this.storage);
     const configuredConsent = normalizedOptions.initialConsentGranted;
     const initialConsentGranted =
       typeof configuredConsent === 'boolean'
@@ -150,7 +164,10 @@ export class AnalyticsClient {
         : persistedConsent ?? this.hasIngestConfig;
     this.consentGranted = this.hasIngestConfig && initialConsentGranted;
     if (this.hasExplicitInitialConsent && this.persistConsentState) {
-      this.writePersistedConsent(this.consentGranted);
+      this.writePersistedConsent(this.storage, this.consentGranted);
+    }
+    if (this.hasExplicitInitialFullTrackingConsent && this.persistConsentState) {
+      this.writePersistedConsent(this.configuredStorage, this.fullTrackingConsentGranted);
     }
 
     this.hydrationPromise = this.hydrateIdentityFromStorage();
@@ -176,7 +193,10 @@ export class AnalyticsClient {
 
     this.consentGranted = granted;
     if ((options.persist ?? true) && this.persistConsentState) {
-      this.writePersistedConsent(granted);
+      this.writePersistedConsent(this.storage, granted);
+    }
+    if (this.identityTrackingMode === 'consent_gated') {
+      this.setFullTrackingConsent(granted, options);
     }
     if (!granted) {
       this.queue = [];
@@ -197,7 +217,7 @@ export class AnalyticsClient {
   }
 
   public getConsentState(): AnalyticsConsentState {
-    const persisted = this.readPersistedConsentSync();
+    const persisted = this.readPersistedConsentSync(this.storage);
     if (persisted === true) {
       return 'granted';
     }
@@ -222,8 +242,44 @@ export class AnalyticsClient {
    * Anonymous history remains linked by anonId/sessionId.
    */
   public identify(userId: string, traits?: EventProperties): void {
-    void userId;
-    void traits;
+    const normalizedUserId = this.readRequiredStringOption(userId);
+    if (!normalizedUserId) {
+      return;
+    }
+    if (!this.isFullTrackingActive()) {
+      this.log('Ignoring identify() because identity persistence is not enabled');
+      return;
+    }
+
+    this.userId = normalizedUserId;
+
+    if (!this.consentGranted) {
+      return;
+    }
+
+    const normalizedTraits = this.cloneProperties(traits);
+    if (this.shouldDeferEventsUntilHydrated()) {
+      this.deferEventUntilHydrated(() => {
+        this.identify(normalizedUserId, normalizedTraits);
+      });
+      return;
+    }
+
+    const sessionId = this.getSessionId();
+    this.enqueue({
+      eventId: randomId(),
+      eventName: 'identify',
+      ts: nowIso(),
+      sessionId,
+      anonId: this.anonId,
+      userId: normalizedUserId,
+      properties: this.withRuntimeMetadata(normalizedTraits, sessionId),
+      platform: this.platform,
+      projectSurface: this.projectSurface,
+      appVersion: this.appVersion,
+      ...this.withEventContext(),
+      type: 'identify',
+    });
   }
 
   /**
@@ -232,9 +288,43 @@ export class AnalyticsClient {
    * - pass null/undefined/empty string to clear user linkage
    */
   public setUser(userId: string | null | undefined, traits?: EventProperties): void {
-    void userId;
-    void traits;
-    this.clearUser();
+    const normalizedUserId = this.readRequiredStringOption(userId);
+    if (!normalizedUserId) {
+      this.clearUser();
+      return;
+    }
+    this.identify(normalizedUserId, traits);
+  }
+
+  /**
+   * Sets consent specifically for persistent identity tracking.
+   * In `consent_gated` mode this toggles strict-vs-full identity behavior while generic event tracking can stay enabled.
+   */
+  public setFullTrackingConsent(granted: boolean, options: SetConsentOptions = {}): void {
+    if (this.identityTrackingMode === 'strict') {
+      return;
+    }
+    if (this.identityTrackingMode === 'always_on') {
+      return;
+    }
+
+    this.fullTrackingConsentGranted = granted;
+    if ((options.persist ?? true) && this.persistConsentState) {
+      this.writePersistedConsent(this.configuredStorage, granted);
+    }
+    this.applyIdentityTrackingState();
+  }
+
+  public optInFullTracking(options?: SetConsentOptions): void {
+    this.setFullTrackingConsent(true, options);
+  }
+
+  public optOutFullTracking(options?: SetConsentOptions): void {
+    this.setFullTrackingConsent(false, options);
+  }
+
+  public isFullTrackingEnabled(): boolean {
+    return this.isFullTrackingActive();
   }
 
   /**
@@ -270,7 +360,7 @@ export class AnalyticsClient {
       ts: nowIso(),
       sessionId,
       anonId: this.anonId,
-      userId: this.userId,
+      userId: this.getEventUserId(),
       properties: this.withRuntimeMetadata(properties, sessionId),
       platform: this.platform,
       projectSurface: this.projectSurface,
@@ -523,7 +613,7 @@ export class AnalyticsClient {
       ts: nowIso(),
       sessionId,
       anonId: this.anonId,
-      userId: this.userId,
+      userId: this.getEventUserId(),
       properties: this.withRuntimeMetadata(properties, sessionId),
       platform: this.platform,
       projectSurface: this.projectSurface,
@@ -563,7 +653,7 @@ export class AnalyticsClient {
       ts: nowIso(),
       sessionId,
       anonId: this.anonId,
-      userId: this.userId,
+      userId: this.getEventUserId(),
       properties: this.withRuntimeMetadata({ message, rating, ...properties }, sessionId),
       platform: this.platform,
       projectSurface: this.projectSurface,
@@ -680,25 +770,28 @@ export class AnalyticsClient {
     return null;
   }
 
-  private readPersistedConsentSync(): boolean | null {
-    if (!this.persistConsentState || this.storageReadsAreAsync) {
-      return null;
-    }
-    return this.parsePersistedConsent(readStorageSync(this.storage, this.consentStorageKey));
-  }
-
-  private async readPersistedConsentAsync(): Promise<boolean | null> {
+  private readPersistedConsentSync(storage: AnalyticsStorageAdapter | null): boolean | null {
     if (!this.persistConsentState) {
       return null;
     }
-    return this.parsePersistedConsent(await readStorageAsync(this.storage, this.consentStorageKey));
+    if (storage === this.storage && this.storageReadsAreAsync) {
+      return null;
+    }
+    return this.parsePersistedConsent(readStorageSync(storage, this.consentStorageKey));
   }
 
-  private writePersistedConsent(granted: boolean): void {
+  private async readPersistedConsentAsync(storage: AnalyticsStorageAdapter | null): Promise<boolean | null> {
+    if (!this.persistConsentState) {
+      return null;
+    }
+    return this.parsePersistedConsent(await readStorageAsync(storage, this.consentStorageKey));
+  }
+
+  private writePersistedConsent(storage: AnalyticsStorageAdapter | null, granted: boolean): void {
     if (!this.persistConsentState) {
       return;
     }
-    writeStorageSync(this.storage, this.consentStorageKey, granted ? 'granted' : 'denied');
+    writeStorageSync(storage, this.consentStorageKey, granted ? 'granted' : 'denied');
   }
 
   private startAutoFlush(): void {
@@ -813,7 +906,7 @@ export class AnalyticsClient {
         readStorageAsync(this.storage, DEVICE_ID_KEY),
         readStorageAsync(this.storage, SESSION_ID_KEY),
         readStorageAsync(this.storage, LAST_SEEN_KEY),
-        this.readPersistedConsentAsync(),
+        this.readPersistedConsentAsync(this.storage),
       ]);
 
       if (!this.hasExplicitAnonId && storedAnonId) {
@@ -1061,6 +1154,93 @@ export class AnalyticsClient {
     } catch {
       return null;
     }
+  }
+
+  private resolveIdentityTrackingModeOption(
+    options: Partial<AnalyticsClientOptions>,
+  ): IdentityTrackingMode {
+    const explicitMode = this.readRequiredStringOption(options.identityTrackingMode).toLowerCase();
+    if (explicitMode === 'strict') {
+      return 'strict';
+    }
+    if (explicitMode === 'consent_gated') {
+      return 'consent_gated';
+    }
+    if (explicitMode === 'always_on') {
+      return 'always_on';
+    }
+    if (options.enableFullTrackingWithoutConsent === true) {
+      return 'always_on';
+    }
+    return 'consent_gated';
+  }
+
+  private resolveConfiguredStorage(options: Partial<AnalyticsClientOptions>): AnalyticsStorageAdapter | null {
+    if (this.identityTrackingMode === 'strict') {
+      if (options.storage || options.useCookieStorage || options.cookieDomain) {
+        this.log('Ignoring storage/cookie configuration because identityTrackingMode=strict');
+      }
+      return null;
+    }
+
+    const customStorage = options.storage ?? null;
+    const browserStorage = resolveBrowserStorageAdapter();
+    const primaryStorage = customStorage ?? browserStorage;
+    const cookieStorage = resolveCookieStorageAdapter(
+      options.useCookieStorage === true,
+      this.readRequiredStringOption(options.cookieDomain) || undefined,
+      this.normalizeCookieMaxAgeSeconds(options.cookieMaxAgeSeconds),
+    );
+
+    if (primaryStorage && cookieStorage) {
+      return combineStorageAdapters(primaryStorage, cookieStorage);
+    }
+
+    return primaryStorage ?? cookieStorage;
+  }
+
+  private normalizeCookieMaxAgeSeconds(value: unknown): number {
+    if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
+      return DEFAULT_COOKIE_MAX_AGE_SECONDS;
+    }
+    return Math.floor(value);
+  }
+
+  private isFullTrackingActive(): boolean {
+    if (!this.hasIngestConfig) {
+      return false;
+    }
+    if (this.identityTrackingMode === 'always_on') {
+      return true;
+    }
+    if (this.identityTrackingMode === 'strict') {
+      return false;
+    }
+    return this.fullTrackingConsentGranted;
+  }
+
+  private applyIdentityTrackingState(): void {
+    if (!this.isFullTrackingActive()) {
+      this.storage = null;
+      this.storageReadsAreAsync = false;
+      this.userId = null;
+      return;
+    }
+
+    this.storage = this.configuredStorage;
+    this.storageReadsAreAsync = this.detectAsyncStorageReads();
+    this.sessionId = this.ensureSessionId();
+    this.sessionEventSeq = this.readSessionEventSeq(this.sessionId);
+    writeStorageSync(this.storage, DEVICE_ID_KEY, this.anonId);
+    writeStorageSync(this.storage, SESSION_ID_KEY, this.sessionId);
+    writeStorageSync(this.storage, LAST_SEEN_KEY, String(this.inMemoryLastSeenMs));
+  }
+
+  private getEventUserId(): string | null {
+    if (!this.isFullTrackingActive()) {
+      return null;
+    }
+    return this.userId;
   }
 
   private withEventContext(): EventContext {
