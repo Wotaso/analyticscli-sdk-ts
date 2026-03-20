@@ -40,7 +40,10 @@ Before integrating, collect required values in [dash.analyticscli.com](https://d
 ```ts
 import { init, ONBOARDING_EVENTS } from '@analyticscli/sdk';
 
-const analytics = init('<YOUR_APP_KEY>'); // short form
+const analytics = init({
+  apiKey: '<YOUR_APP_KEY>',
+  identityTrackingMode: 'consent_gated', // explicit host-app default
+});
 
 analytics.trackOnboardingEvent(ONBOARDING_EVENTS.START, {
   onboardingFlowId: 'onboarding_v1',
@@ -52,12 +55,18 @@ analytics.trackOnboardingEvent(ONBOARDING_EVENTS.START, {
 - `init('<YOUR_APP_KEY>')`
 - `init({ ...allOptionsOptional })`
 
+For host-app integration, prefer object init with an explicit
+`identityTrackingMode: 'consent_gated'` unless you intentionally need another mode.
+
 Optional runtime collection pause/resume:
 
 ```ts
 import { init } from '@analyticscli/sdk';
 
-const analytics = init('<YOUR_APP_KEY>');
+const analytics = init({
+  apiKey: '<YOUR_APP_KEY>',
+  identityTrackingMode: 'consent_gated',
+});
 analytics.optOut(); // stop sending until optIn()
 // ...
 analytics.optIn();
@@ -68,8 +77,10 @@ Optional full-tracking consent gate (recommended default):
 ```ts
 import { init } from '@analyticscli/sdk';
 
-const analytics = init('<YOUR_APP_KEY>');
-// default identityTrackingMode is "consent_gated"
+const analytics = init({
+  apiKey: '<YOUR_APP_KEY>',
+  identityTrackingMode: 'consent_gated',
+});
 
 // user accepts full tracking in your consent UI
 analytics.setFullTrackingConsent(true);
@@ -135,6 +146,24 @@ without overloading runtime `platform` (`web`, `ios`, `android`, ...).
 `onboarding:step_view` events for the same step in the same session (for
 example, when React effects fire twice or the screen remounts). It does not
 dedupe paywall events, purchase events, or `screen(...)` calls.
+
+For paywall funnels with stable `source` + `paywallId`, create one tracker per
+flow context and reuse it:
+
+```ts
+const paywall = analytics.createPaywallTracker({
+  source: 'onboarding',
+  paywallId: 'default_paywall',
+  offering: 'rc_main', // RevenueCat example
+});
+
+paywall.shown({ fromScreen: 'onboarding_offer' });
+paywall.purchaseSuccess({ packageId: 'annual' });
+```
+
+Do not create a new `createPaywallTracker(...)` instance for every paywall callback/event.
+If your paywall provider exposes it, pass `offering` in tracker defaults
+(RevenueCat offering id, Adapty paywall/placement id, Superwall placement/paywall id).
 
 Identity tracking modes:
 - `consent_gated` (default): starts strict (no persistent identity), enables persistence/linkage only after `setFullTrackingConsent(true)`

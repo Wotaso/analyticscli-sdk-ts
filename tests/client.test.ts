@@ -1692,10 +1692,14 @@ test('setContext() only emits allowed geo/os context fields', async () => {
       client.setContext({
         osName: 'iOS',
         osVersion: '18.2',
-        deviceModel: 'iPhone16,2',
-        locale: 'en-US',
         country: 'US',
       });
+      client.setContext(
+        {
+          deviceModel: 'iPhone16,2',
+          locale: 'en-US',
+        } as unknown as Parameters<typeof client.setContext>[0],
+      );
       client.track('app_open');
       await client.flush();
 

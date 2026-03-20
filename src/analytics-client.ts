@@ -484,6 +484,8 @@ export class AnalyticsClient {
   /**
    * Creates a scoped paywall tracker that applies shared paywall defaults to every journey event.
    * Useful when a flow has a stable `source`, `paywallId`, `offering`, or experiment metadata.
+   * Reuse the returned tracker for that flow context; creating a new tracker per event resets
+   * paywall entry correlation.
    */
   public createPaywallTracker(defaults: PaywallTrackerDefaults): PaywallTracker {
     const { source: rawDefaultSource, ...defaultProperties } = defaults;

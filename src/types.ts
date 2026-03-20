@@ -33,17 +33,9 @@ export type EventContext = {
   appBuild?: string;
   osName?: string;
   osVersion?: string;
-  deviceModel?: string;
-  deviceManufacturer?: string;
-  deviceType?: string;
-  locale?: string;
   country?: string;
   region?: string;
   city?: string;
-  timezone?: string;
-  networkType?: string;
-  carrier?: string;
-  installSource?: string;
 };
 
 export type OnboardingEventProperties = EventProperties & {
