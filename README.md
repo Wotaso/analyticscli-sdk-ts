@@ -165,6 +165,35 @@ Do not create a new `createPaywallTracker(...)` instance for every paywall callb
 If your paywall provider exposes it, pass `offering` in tracker defaults
 (RevenueCat offering id, Adapty paywall/placement id, Superwall placement/paywall id).
 
+For onboarding surveys, avoid repeating unchanged flow metadata at every callsite.
+Create one onboarding tracker with defaults and emit minimal survey payloads:
+
+```ts
+const onboarding = analytics.createOnboardingTracker({
+  onboardingFlowId: 'onboarding_main',
+  onboardingFlowVersion: '1',
+  stepCount: 7,
+  isNewUser: true,
+});
+
+onboarding.step('budget-survey', 6).surveyResponse({
+  surveyKey: 'onboarding_main',
+  questionKey: 'budget',
+  answerType: 'single_choice',
+  responseKey: '100-500',
+});
+```
+
+For RevenueCat correlation, keep identity and paywall purchase metadata aligned:
+
+```ts
+analytics.setUser(appUserId); // same id passed to Purchases.logIn(appUserId)
+// in purchase callbacks, prefer provider-native ids
+paywall.purchaseStarted({ packageId: packageBeingPurchased.identifier });
+// on sign-out
+analytics.clearUser();
+```
+
 Identity tracking modes:
 - `consent_gated` (default): starts strict (no persistent identity), enables persistence/linkage only after `setFullTrackingConsent(true)`
 - `always_on`: enables persistence/linkage immediately (`enableFullTrackingWithoutConsent: true` is a boolean shortcut)
