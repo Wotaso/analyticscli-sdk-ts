@@ -163,3 +163,112 @@ test('createAnalyticsContext() accepts an existing AnalyticsClient instance', ()
     context.shutdown();
   }
 });
+
+test('createAnalyticsContext() forwards wrapper APIs for tracking, consent, user, and scoped factories', async () => {
+  await withMockedGlobals(async (calls) => {
+    const context = createAnalyticsContext({
+      client: 'pi_live_test',
+      onboarding: {
+        onboardingFlowId: 'flow_default',
+        onboardingFlowVersion: '1',
+        isNewUser: true,
+      },
+      paywall: {
+        source: 'onboarding',
+        paywallId: 'paywall_default',
+      },
+    });
+
+    try {
+      await context.ready();
+
+      context.setContext({
+        appBuild: '100',
+        osName: 'ios',
+        osVersion: '17',
+        country: 'DE',
+        region: 'BE',
+        city: 'Berlin',
+      });
+
+      assert.equal(context.consent.get(), true);
+      context.consent.optOut();
+      context.consent.optIn();
+      context.consent.set(true);
+      assert.equal(context.consent.getState(), 'granted');
+      context.consent.setFullTracking(false);
+      context.consent.optInFullTracking();
+      context.consent.optOutFullTracking();
+      assert.equal(typeof context.consent.isFullTrackingEnabled(), 'boolean');
+
+      context.user.identify('user-1', { plan: 'pro' });
+      context.user.set('user-2', { role: 'owner' });
+      context.user.clear();
+
+      context.track('custom:event', { origin: 'context' });
+      context.trackOnboardingEvent('onboarding:start', {
+        onboardingFlowId: 'flow_default',
+      });
+      context.trackOnboardingSurveyResponse({
+        surveyKey: 'onboarding',
+        questionKey: 'intent',
+        answerType: 'single_choice',
+        responseKey: 'growth',
+      });
+      context.trackPaywallEvent('paywall:shown', {
+        source: 'onboarding',
+      });
+      context.screen('home');
+      context.page('home_alt');
+      context.feedback('great sdk', 5, { channel: 'test' });
+
+      const onboarding = context.createOnboarding({
+        onboardingFlowId: 'flow_custom',
+        onboardingFlowVersion: '2',
+        stepCount: 3,
+      });
+      onboarding.start();
+      onboarding.step('welcome', 0).complete();
+
+      context.configureOnboarding({
+        onboardingFlowId: 'flow_reconfigured',
+        onboardingFlowVersion: '3',
+      });
+      context.onboarding.start();
+
+      const paywall = context.createPaywall({
+        source: 'onboarding',
+        paywallId: 'paywall_custom',
+      });
+      paywall.shown({ fromScreen: 'onboarding_offer' });
+      context.configurePaywall({
+        source: 'onboarding',
+        paywallId: 'paywall_reconfigured',
+      });
+      context.paywall?.shown({ fromScreen: 'reconfigured_offer' });
+
+      await context.flush();
+
+      assert.ok(calls.length >= 1);
+      const payload = JSON.parse(String(calls[0]?.init?.body)) as {
+        events: Array<{ eventName: string }>;
+      };
+      assert.ok(payload.events.length > 0);
+    } finally {
+      context.shutdown();
+    }
+  });
+});
+
+test('createAnalyticsContext() handles null client input as safe no-op context', () => {
+  const context = createAnalyticsContext({
+    client: null,
+  });
+
+  try {
+    context.track('onboarding:start');
+    assert.equal(context.paywall, null);
+  } finally {
+    context.shutdown();
+  }
+});
