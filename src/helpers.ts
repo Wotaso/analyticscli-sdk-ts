@@ -29,12 +29,15 @@ export const randomId = (): string => {
   }
 
   // RFC 4122 v4 UUID bits.
-  bytes[6] = (bytes[6] & 0x0f) | 0x40;
-  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const byte6 = bytes[6] ?? 0;
+  const byte8 = bytes[8] ?? 0;
+  bytes[6] = (byte6 & 0x0f) | 0x40;
+  bytes[8] = (byte8 & 0x3f) | 0x80;
 
   let output = '';
   for (let index = 0; index < bytes.length; index += 1) {
-    const hex = bytes[index].toString(16).padStart(2, '0');
+    const byte = bytes[index] ?? 0;
+    const hex = byte.toString(16).padStart(2, '0');
     output += hex;
     if (index === 3 || index === 5 || index === 7 || index === 9) {
       output += '-';
