@@ -1037,7 +1037,7 @@ test('onIngestError reports structured diagnostics for 401 and pauses repeated f
       JSON.stringify({
         error: {
           code: 'UNAUTHORIZED',
-          message: 'Invalid write key',
+          message: 'Invalid public api key',
         },
       }),
       {
@@ -1082,7 +1082,7 @@ test('onIngestError reports structured diagnostics for 401 and pauses repeated f
     assert.equal(first.path, '/v1/collect');
     assert.equal(first.status, 401);
     assert.equal(first.errorCode, 'UNAUTHORIZED');
-    assert.equal(first.serverMessage, 'Invalid write key');
+    assert.equal(first.serverMessage, 'Invalid public api key');
     assert.equal(first.requestId, 'req_401_test');
     assert.equal(first.retryable, false);
     assert.equal(first.attempts, 1);
