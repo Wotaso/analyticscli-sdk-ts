@@ -5,6 +5,7 @@ import {
   detectDefaultAppVersion,
   detectDefaultPlatform,
   detectRuntimeEnv,
+  randomId,
   readStorageAsync,
   readStorageSync,
   resolveCookieStorageAdapter,
@@ -15,6 +16,9 @@ import {
   toTextLengthBucket,
   writeStorageSync,
 } from '../src/helpers.js';
+
+const UUID_V4_REGEX =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const withGlobalProperty = async <T>(
   key: keyof typeof globalThis,
@@ -78,6 +82,25 @@ test('writeStorageSync swallows sync and async storage failures', async () => {
   assert.doesNotThrow(() => writeStorageSync(syncFailStorage, 'key', 'value'));
   assert.doesNotThrow(() => writeStorageSync(asyncFailStorage, 'key', 'value'));
   await new Promise((resolve) => setTimeout(resolve, 0));
+});
+
+test('randomId() returns UUID v4 via crypto.randomUUID when available', async () => {
+  await withGlobalProperty(
+    'crypto' as keyof typeof globalThis,
+    {
+      randomUUID: () => '11111111-1111-4111-8111-111111111111',
+    },
+    () => {
+      assert.equal(randomId(), '11111111-1111-4111-8111-111111111111');
+    },
+  );
+});
+
+test('randomId() fallback returns UUID v4 when randomUUID is unavailable', async () => {
+  await withGlobalProperty('crypto' as keyof typeof globalThis, undefined, () => {
+    const id = randomId();
+    assert.match(id, UUID_V4_REGEX);
+  });
 });
 
 test('detectDefaultPlatform returns undefined when only ReactNative product is known', async () => {

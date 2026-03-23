@@ -18,7 +18,30 @@ export const randomId = (): string => {
   if (globalThis.crypto?.randomUUID) {
     return globalThis.crypto.randomUUID();
   }
-  return `${Date.now()}-${Math.random().toString(16).slice(2, 12)}`;
+
+  const bytes = new Uint8Array(16);
+  if (globalThis.crypto?.getRandomValues) {
+    globalThis.crypto.getRandomValues(bytes);
+  } else {
+    for (let index = 0; index < bytes.length; index += 1) {
+      bytes[index] = Math.floor(Math.random() * 256);
+    }
+  }
+
+  // RFC 4122 v4 UUID bits.
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+
+  let output = '';
+  for (let index = 0; index < bytes.length; index += 1) {
+    const hex = bytes[index].toString(16).padStart(2, '0');
+    output += hex;
+    if (index === 3 || index === 5 || index === 7 || index === 9) {
+      output += '-';
+    }
+  }
+
+  return output;
 };
 
 export const readStorageSync = (storage: AnalyticsStorageAdapter | null, key: string): string | null => {
