@@ -38,6 +38,8 @@ import { sanitizeSurveyResponseInput } from './survey.js';
 import type {
   AnalyticsConsentState,
   AnalyticsClientOptions,
+  AnalyticsIngestError,
+  AnalyticsIngestErrorHandler,
   AnalyticsStorageAdapter,
   EventContext,
   EventProperties,
@@ -57,6 +59,48 @@ import type {
 } from './types.js';
 
 const DEFAULT_CONSENT_STORAGE_KEY = 'analyticscli:consent:v1';
+const AUTH_FAILURE_FLUSH_PAUSE_MS = 60_000;
+
+type IngestErrorBody = {
+  error?: {
+    code?: unknown;
+    message?: unknown;
+  };
+};
+
+type IngestSendErrorInput = {
+  message: string;
+  retryable: boolean;
+  attempts: number;
+  status?: number;
+  errorCode?: string;
+  serverMessage?: string;
+  requestId?: string;
+  cause?: unknown;
+};
+
+class IngestSendError extends Error {
+  public readonly retryable: boolean;
+  public readonly attempts: number;
+  public readonly status?: number;
+  public readonly errorCode?: string;
+  public readonly serverMessage?: string;
+  public readonly requestId?: string;
+
+  constructor(input: IngestSendErrorInput) {
+    super(input.message);
+    this.name = 'IngestSendError';
+    this.retryable = input.retryable;
+    this.attempts = input.attempts;
+    this.status = input.status;
+    this.errorCode = input.errorCode;
+    this.serverMessage = input.serverMessage;
+    this.requestId = input.requestId;
+    if (input.cause !== undefined) {
+      (this as Error & { cause?: unknown }).cause = input.cause;
+    }
+  }
+}
 
 export class AnalyticsClient {
   private readonly apiKey: string;
@@ -66,6 +110,7 @@ export class AnalyticsClient {
   private readonly flushIntervalMs: number;
   private readonly maxRetries: number;
   private readonly debug: boolean;
+  private readonly onIngestError: AnalyticsIngestErrorHandler | null;
   private readonly platform: string | undefined;
   private readonly projectSurface: string | undefined;
   private readonly appVersion: string | undefined;
@@ -99,6 +144,7 @@ export class AnalyticsClient {
   private deferredEventsBeforeHydration: Array<() => void> = [];
   private onboardingStepViewStateSessionId: string | null = null;
   private onboardingStepViewsSeen = new Set<string>();
+  private flushPausedUntilMs = 0;
 
   constructor(options: AnalyticsClientOptions) {
     const normalizedOptions = this.normalizeOptions(options);
@@ -115,6 +161,8 @@ export class AnalyticsClient {
     this.flushIntervalMs = normalizedOptions.flushIntervalMs ?? 5000;
     this.maxRetries = normalizedOptions.maxRetries ?? 4;
     this.debug = normalizedOptions.debug ?? false;
+    this.onIngestError =
+      typeof normalizedOptions.onIngestError === 'function' ? normalizedOptions.onIngestError : null;
     this.platform = this.normalizePlatformOption(normalizedOptions.platform) ?? detectDefaultPlatform();
     this.projectSurface = this.normalizeProjectSurfaceOption(normalizedOptions.projectSurface);
     this.appVersion =
@@ -676,6 +724,9 @@ export class AnalyticsClient {
     if (this.queue.length === 0 || this.isFlushing || !this.consentGranted) {
       return;
     }
+    if (Date.now() < this.flushPausedUntilMs) {
+      return;
+    }
 
     this.isFlushing = true;
     const batch = this.queue.splice(0, this.batchSize);
@@ -694,9 +745,20 @@ export class AnalyticsClient {
 
     try {
       await this.sendWithRetry(payload);
+      this.flushPausedUntilMs = 0;
     } catch (error) {
-      this.log('Send failed permanently, requeueing batch', error);
       this.queue = [...batch, ...this.queue];
+      const ingestError = this.toIngestSendError(error);
+      const diagnostics = this.createIngestDiagnostics(ingestError, batch.length, this.queue.length);
+      if (ingestError.status === 401 || ingestError.status === 403) {
+        this.flushPausedUntilMs = Date.now() + AUTH_FAILURE_FLUSH_PAUSE_MS;
+        this.log('Pausing ingest flush after auth failure', {
+          status: ingestError.status,
+          retryAfterMs: AUTH_FAILURE_FLUSH_PAUSE_MS,
+        });
+      }
+      this.log('Send failed permanently, requeueing batch', diagnostics);
+      this.reportIngestError(diagnostics);
     } finally {
       this.isFlushing = false;
     }
@@ -730,10 +792,9 @@ export class AnalyticsClient {
   }
 
   private async sendWithRetry(payload: IngestBatch): Promise<void> {
-    let attempt = 0;
     let delay = 250;
 
-    while (attempt <= this.maxRetries) {
+    for (let attempt = 1; attempt <= this.maxRetries + 1; attempt += 1) {
       try {
         const response = await fetch(`${this.endpoint}/v1/collect`, {
           method: 'POST',
@@ -746,19 +807,133 @@ export class AnalyticsClient {
         });
 
         if (!response.ok) {
-          throw new Error(`ingest status=${response.status}`);
+          throw await this.createHttpIngestSendError(response, attempt);
         }
 
         return;
       } catch (error) {
-        attempt += 1;
-        if (attempt > this.maxRetries) {
-          throw error;
+        const normalized = this.toIngestSendError(error, attempt);
+        const finalAttempt = attempt >= this.maxRetries + 1;
+        this.log('Ingest attempt failed', {
+          attempt: normalized.attempts,
+          maxRetries: this.maxRetries,
+          retryable: normalized.retryable,
+          status: normalized.status,
+          errorCode: normalized.errorCode,
+          requestId: normalized.requestId,
+          nextRetryInMs: !finalAttempt && normalized.retryable ? delay : null,
+        });
+
+        if (finalAttempt || !normalized.retryable) {
+          throw normalized;
         }
 
         await new Promise((resolve) => setTimeout(resolve, delay));
         delay *= 2;
       }
+    }
+  }
+
+  private async createHttpIngestSendError(
+    response: Response,
+    attempts: number,
+  ): Promise<IngestSendError> {
+    const requestId =
+      response.headers.get('x-request-id') ?? response.headers.get('cf-ray') ?? undefined;
+    let errorCode: string | undefined;
+    let serverMessage: string | undefined;
+
+    try {
+      const parsed = (await response.json()) as IngestErrorBody;
+      const errorBody =
+        parsed && typeof parsed === 'object' && parsed.error && typeof parsed.error === 'object'
+          ? parsed.error
+          : undefined;
+      if (typeof errorBody?.code === 'string') {
+        errorCode = errorBody.code;
+      }
+      if (typeof errorBody?.message === 'string') {
+        serverMessage = errorBody.message;
+      }
+    } catch {
+      // Response body can be empty or non-JSON; status and request id are still enough for diagnostics.
+    }
+
+    const retryable = this.shouldRetryHttpStatus(response.status);
+    const statusSuffix = errorCode ? ` ${errorCode}` : '';
+    const message = `ingest status=${response.status}${statusSuffix}`;
+
+    return new IngestSendError({
+      message,
+      retryable,
+      attempts,
+      status: response.status,
+      errorCode,
+      serverMessage,
+      requestId,
+    });
+  }
+
+  private shouldRetryHttpStatus(status: number): boolean {
+    return status === 408 || status === 425 || status === 429 || status >= 500;
+  }
+
+  private toIngestSendError(error: unknown, attempts?: number): IngestSendError {
+    if (error instanceof IngestSendError) {
+      const resolvedAttempts = attempts ?? error.attempts;
+      return new IngestSendError({
+        message: error.message,
+        retryable: error.retryable,
+        attempts: resolvedAttempts,
+        status: error.status,
+        errorCode: error.errorCode,
+        serverMessage: error.serverMessage,
+        requestId: error.requestId,
+        cause: (error as Error & { cause?: unknown }).cause,
+      });
+    }
+
+    const fallbackMessage = error instanceof Error ? error.message : 'ingest request failed';
+    return new IngestSendError({
+      message: fallbackMessage,
+      retryable: true,
+      attempts: attempts ?? 1,
+      cause: error,
+    });
+  }
+
+  private createIngestDiagnostics(
+    error: IngestSendError,
+    batchSize: number,
+    queueSize: number,
+  ): AnalyticsIngestError {
+    return {
+      name: 'AnalyticsIngestError',
+      message: error.message,
+      endpoint: this.endpoint,
+      path: '/v1/collect',
+      status: error.status,
+      errorCode: error.errorCode,
+      serverMessage: error.serverMessage,
+      requestId: error.requestId,
+      retryable: error.retryable,
+      attempts: error.attempts,
+      maxRetries: this.maxRetries,
+      batchSize,
+      queueSize,
+      timestamp: nowIso(),
+    };
+  }
+
+  private reportIngestError(error: AnalyticsIngestError): void {
+    if (!this.onIngestError) {
+      return;
+    }
+
+    try {
+      this.onIngestError(error);
+    } catch (callbackError) {
+      this.log('onIngestError callback threw', callbackError);
     }
   }
 

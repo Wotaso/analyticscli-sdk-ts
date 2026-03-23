@@ -9,6 +9,7 @@ import {
   PAYWALL_EVENTS,
   PURCHASE_EVENTS,
 } from '../src/index.js';
+import type { AnalyticsIngestError } from '../src/index.js';
 
 const createMemoryStorage = (): Storage => {
   const map = new Map<string, string>();
@@ -1021,6 +1022,86 @@ test('debug logging is disabled by default and enabled with debug=true', async (
     }
   } finally {
     console.debug = originalConsoleDebug;
+  }
+});
+
+test('onIngestError reports structured diagnostics for 401 and pauses repeated flush attempts', async () => {
+  const calls: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];
+  const reportedErrors: AnalyticsIngestError[] = [];
+  const originalFetch = globalThis.fetch;
+  const originalLocalStorage = globalThis.localStorage;
+
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    calls.push({ input, init });
+    return new Response(
+      JSON.stringify({
+        error: {
+          code: 'UNAUTHORIZED',
+          message: 'Invalid write key',
+        },
+      }),
+      {
+        status: 401,
+        headers: {
+          'content-type': 'application/json',
+          'x-request-id': 'req_401_test',
+        },
+      },
+    );
+  }) as typeof globalThis.fetch;
+
+  Object.defineProperty(globalThis, 'localStorage', {
+    value: createMemoryStorage(),
+    configurable: true,
+    writable: true,
+  });
+
+  const client = init({
+    apiKey: 'pi_live_test',
+    endpoint: 'https://collector.analyticscli.com',
+    batchSize: 20,
+    flushIntervalMs: 60_000,
+    maxRetries: 4,
+    onIngestError: (error) => {
+      reportedErrors.push(error);
+    },
+  });
+
+  try {
+    client.track('onboarding:start');
+    await client.flush();
+    await client.flush();
+
+    assert.equal(calls.length, 1);
+    assert.equal(reportedErrors.length, 1);
+
+    const first = reportedErrors[0];
+    assert.ok(first);
+    assert.equal(first.name, 'AnalyticsIngestError');
+    assert.equal(first.endpoint, 'https://collector.analyticscli.com');
+    assert.equal(first.path, '/v1/collect');
+    assert.equal(first.status, 401);
+    assert.equal(first.errorCode, 'UNAUTHORIZED');
+    assert.equal(first.serverMessage, 'Invalid write key');
+    assert.equal(first.requestId, 'req_401_test');
+    assert.equal(first.retryable, false);
+    assert.equal(first.attempts, 1);
+    assert.equal(first.maxRetries, 4);
+    assert.equal(first.batchSize, 1);
+    assert.equal(first.queueSize, 1);
+    assert.equal(typeof first.timestamp, 'string');
+  } finally {
+    client.shutdown();
+    globalThis.fetch = originalFetch;
+    if (originalLocalStorage) {
+      Object.defineProperty(globalThis, 'localStorage', {
+        value: originalLocalStorage,
+        configurable: true,
+        writable: true,
+      });
+    } else {
+      Reflect.deleteProperty(globalThis, 'localStorage');
+    }
   }
 });
 

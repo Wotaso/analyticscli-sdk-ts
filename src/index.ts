@@ -22,6 +22,8 @@ export type {
 export type {
   AnalyticsClientOptions,
   AnalyticsConsentState,
+  AnalyticsIngestError,
+  AnalyticsIngestErrorHandler,
   AnalyticsStorageAdapter,
   EventContext,
   EventProperties,

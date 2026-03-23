@@ -167,6 +167,67 @@ export type QueuedEvent = {
 export type AnalyticsConsentState = 'granted' | 'denied' | 'unknown';
 export type IdentityTrackingMode = 'strict' | 'consent_gated' | 'always_on';
 
+export type AnalyticsIngestError = {
+  /**
+   * Stable error name for host-app monitoring.
+   */
+  name: 'AnalyticsIngestError';
+  /**
+   * Human-readable summary of the ingest failure.
+   */
+  message: string;
+  /**
+   * Collector endpoint base URL configured in the SDK client.
+   */
+  endpoint: string;
+  /**
+   * Collector path that failed.
+   */
+  path: '/v1/collect';
+  /**
+   * HTTP status when available.
+   */
+  status?: number;
+  /**
+   * Structured server error code when available.
+   */
+  errorCode?: string;
+  /**
+   * Structured server message when available.
+   */
+  serverMessage?: string;
+  /**
+   * Request correlation id when exposed by the collector response.
+   */
+  requestId?: string;
+  /**
+   * Whether retrying can help (`true` for network/5xx/429 class failures).
+   */
+  retryable: boolean;
+  /**
+   * Number of attempts that were made for this batch.
+   */
+  attempts: number;
+  /**
+   * SDK max retries configured on the client.
+   */
+  maxRetries: number;
+  /**
+   * Number of events in the failed batch.
+   */
+  batchSize: number;
+  /**
+   * Current queue size after requeue.
+   */
+  queueSize: number;
+  /**
+   * ISO timestamp when the failure was surfaced to host-app callbacks.
+   */
+  timestamp: string;
+};
+
+export type AnalyticsIngestErrorHandler = (error: AnalyticsIngestError) => void;
+
 export type SetConsentOptions = {
   /**
    * Whether consent state should be persisted to storage when enabled.
@@ -196,6 +257,14 @@ export type AnalyticsClientOptions = {
    * `debug: __DEV__`
    */
   debug?: boolean | null;
+  /**
+   * Optional host-app hook for ingest delivery failures.
+   * Use this to forward operational diagnostics to your own monitoring stack.
+   *
+   * GDPR recommendation:
+   * forward this structured metadata only and avoid attaching event payloads or raw identifiers.
+   */
+  onIngestError?: AnalyticsIngestErrorHandler | null;
   /**
    * Optional platform hint.
    * React Native/Expo: passing `Platform.OS` directly is supported.
