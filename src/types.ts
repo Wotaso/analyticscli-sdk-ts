@@ -278,37 +278,4 @@ export type InitOptions = AnalyticsClientOptions;
 
 export type SDKEventName = OnboardingEventName | PaywallJourneyEventName | OnboardingSurveyEventName;
 
-export type InitFromEnvMissingConfigMode = 'noop' | 'throw';
-
-export type InitFromEnvMissingConfig = {
-  missingApiKey: boolean;
-  searchedApiKeyEnvKeys: string[];
-};
-
-export type InitFromEnvOptions = Omit<AnalyticsClientOptions, 'apiKey'> & {
-  /**
-   * Optional environment-like object.
-   * Defaults to `globalThis.process?.env` when available.
-   */
-  env?: Record<string, unknown> | null;
-  /**
-   * Explicit api key override.
-   */
-  apiKey?: string | null;
-  /**
-   * Candidate env keys resolved in order.
-   */
-  apiKeyEnvKeys?: string[] | null;
-  /**
-   * How missing config is handled.
-   * - `noop` (default): returns a safe no-op client
-   * - `throw`: throws when required config is missing
-   */
-  missingConfigMode?: InitFromEnvMissingConfigMode | null;
-  /**
-   * Optional callback for custom logging when config is missing.
-   */
-  onMissingConfig?: ((details: InitFromEnvMissingConfig) => void) | null;
-};
-
 export type InitInput = InitOptions | string | null | undefined;

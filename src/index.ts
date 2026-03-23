@@ -27,9 +27,6 @@ export type {
   EventProperties,
   IdentityTrackingMode,
   InitInput,
-  InitFromEnvMissingConfig,
-  InitFromEnvMissingConfigMode,
-  InitFromEnvOptions,
   InitOptions,
   OnboardingEventProperties,
   OnboardingStepTracker,
@@ -47,12 +44,14 @@ export type {
 
 export { AnalyticsClient } from './analytics-client.js';
 export {
-  DEFAULT_API_KEY_ENV_KEYS,
-  initFromEnv,
-} from './bootstrap.js';
+  createAnalyticsContext,
+  type AnalyticsContext,
+  type AnalyticsContextConsentControls,
+  type AnalyticsContextUserControls,
+  type CreateAnalyticsContextOptions,
+} from './context.js';
 import { AnalyticsClient } from './analytics-client.js';
-import { initFromEnv } from './bootstrap.js';
-import type { InitFromEnvOptions, InitInput, InitOptions } from './types.js';
+import type { InitInput, InitOptions } from './types.js';
 
 const normalizeInitInput = (input: InitInput): InitOptions => {
   if (typeof input === 'string') {
@@ -96,49 +95,4 @@ export const initConsentFirstAsync = async (input: InitInput = {}): Promise<Anal
   const client = initConsentFirst(input);
   await client.ready();
   return client;
-};
-
-export const BROWSER_API_KEY_ENV_KEYS = [
-  'ANALYTICSCLI_PUBLISHABLE_API_KEY',
-  'NEXT_PUBLIC_ANALYTICSCLI_PUBLISHABLE_API_KEY',
-  'PUBLIC_ANALYTICSCLI_PUBLISHABLE_API_KEY',
-  'VITE_ANALYTICSCLI_PUBLISHABLE_API_KEY',
-  'EXPO_PUBLIC_ANALYTICSCLI_PUBLISHABLE_API_KEY',
-] as const;
-
-export const REACT_NATIVE_API_KEY_ENV_KEYS = [
-  'ANALYTICSCLI_PUBLISHABLE_API_KEY',
-  'EXPO_PUBLIC_ANALYTICSCLI_PUBLISHABLE_API_KEY',
-] as const;
-
-export type BrowserInitFromEnvOptions = Omit<InitFromEnvOptions, 'apiKeyEnvKeys'> & {
-  apiKeyEnvKeys?: readonly string[];
-};
-
-export type ReactNativeInitFromEnvOptions = Omit<InitFromEnvOptions, 'apiKeyEnvKeys'> & {
-  apiKeyEnvKeys?: readonly string[];
-};
-
-/**
- * Browser-focused env bootstrap.
- * Supports common env prefixes across Next.js, Astro/Vite and Expo web.
- */
-export const initBrowserFromEnv = (options: BrowserInitFromEnvOptions = {}) => {
-  const { apiKeyEnvKeys, ...rest } = options;
-  return initFromEnv({
-    ...rest,
-    apiKeyEnvKeys: [...(apiKeyEnvKeys ?? BROWSER_API_KEY_ENV_KEYS)],
-  });
-};
-
-/**
- * React Native-focused env bootstrap.
- * Defaults to native-friendly env keys while still allowing explicit overrides.
- */
-export const initReactNativeFromEnv = (options: ReactNativeInitFromEnvOptions = {}) => {
-  const { apiKeyEnvKeys, ...rest } = options;
-  return initFromEnv({
-    ...rest,
-    apiKeyEnvKeys: [...(apiKeyEnvKeys ?? REACT_NATIVE_API_KEY_ENV_KEYS)],
-  });
 };
