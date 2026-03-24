@@ -61,6 +61,28 @@ import type {
 const DEFAULT_CONSENT_STORAGE_KEY = 'analyticscli:consent:v1';
 const AUTH_FAILURE_FLUSH_PAUSE_MS = 60_000;
 
+const resolveDefaultOsNameFromPlatform = (platform: string | undefined): string | undefined => {
+  if (!platform) {
+    return undefined;
+  }
+  if (platform === 'ios') {
+    return 'iOS';
+  }
+  if (platform === 'android') {
+    return 'Android';
+  }
+  if (platform === 'web') {
+    return 'Web';
+  }
+  if (platform === 'mac') {
+    return 'macOS';
+  }
+  if (platform === 'windows') {
+    return 'Windows';
+  }
+  return undefined;
+};
+
 type IngestErrorBody = {
   error?: {
     code?: unknown;
@@ -168,7 +190,14 @@ export class AnalyticsClient {
     this.appVersion =
       this.readRequiredStringOption(normalizedOptions.appVersion) || detectDefaultAppVersion();
     this.identityTrackingMode = this.resolveIdentityTrackingModeOption(normalizedOptions);
-    this.context = { ...(normalizedOptions.context ?? {}) };
+    const initialContext = { ...(normalizedOptions.context ?? {}) };
+    const hasExplicitOsName = this.readRequiredStringOption(initialContext.osName).length > 0;
+    this.context = {
+      ...initialContext,
+      osName: hasExplicitOsName
+        ? initialContext.osName
+        : (resolveDefaultOsNameFromPlatform(this.platform) ?? initialContext.osName),
+    };
     this.runtimeEnv = detectRuntimeEnv();
     this.persistConsentState = normalizedOptions.persistConsentState ?? false;
     this.consentStorageKey =
@@ -219,6 +248,7 @@ export class AnalyticsClient {
     }
 
     this.hydrationPromise = this.hydrateIdentityFromStorage();
+    this.enqueueInitialSessionStart();
     this.startAutoFlush();
   }
 
@@ -283,6 +313,35 @@ export class AnalyticsClient {
       ...this.context,
       ...context,
     };
+  }
+
+  private enqueueInitialSessionStart(): void {
+    if (!this.consentGranted) {
+      return;
+    }
+
+    if (this.shouldDeferEventsUntilHydrated()) {
+      this.deferEventUntilHydrated(() => {
+        this.enqueueInitialSessionStart();
+      });
+      return;
+    }
+
+    const sessionId = this.getSessionId();
+    this.enqueue({
+      eventId: randomId(),
+      eventName: 'session_start',
+      ts: nowIso(),
+      sessionId,
+      anonId: this.anonId,
+      userId: this.getEventUserId(),
+      properties: this.withRuntimeMetadata({ source: 'sdk_mount' }, sessionId),
+      platform: this.platform,
+      projectSurface: this.projectSurface,
+      appVersion: this.appVersion,
+      ...this.withEventContext(),
+      type: 'track',
+    });
   }
 
   /**

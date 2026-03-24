@@ -91,6 +91,12 @@ const withMockedConsoleError = async (
   }
 };
 
+const withoutSessionStart = <T extends { eventName: string }>(events: T[]): T[] =>
+  events.filter((event) => event.eventName !== 'session_start');
+
+const eventNamesWithoutSessionStart = (events: Array<{ eventName: string }>): string[] =>
+  withoutSessionStart(events).map((event) => event.eventName);
+
 const createCookieDocument = (): { cookie: string } => {
   const store = new Map<string, string>();
 
@@ -146,8 +152,9 @@ test('track() flushes a valid ingest batch', async () => {
         events: Array<{ eventName: string; properties?: Record<string, unknown> }>;
       };
 
-      assert.equal(payload.events[0]?.eventName, 'onboarding:start');
-      assert.equal(typeof payload.events[0]?.properties?.runtimeEnv, 'string');
+      const onboardingStartEvent = payload.events.find((event) => event.eventName === 'onboarding:start');
+      assert.ok(onboardingStartEvent);
+      assert.equal(typeof onboardingStartEvent.properties?.runtimeEnv, 'string');
     } finally {
       client.shutdown();
     }
@@ -263,7 +270,7 @@ test('apiKey-only init payload is valid', async () => {
       const payload = JSON.parse(String(calls[0]?.init?.body)) as {
         events: Array<{ eventName: string }>;
       };
-      assert.equal(payload.events[0]?.eventName, 'onboarding:start');
+      assert.deepEqual(eventNamesWithoutSessionStart(payload.events), ['onboarding:start']);
     } finally {
       client.shutdown();
     }
@@ -308,9 +315,10 @@ test('normalizes macos platform option to canonical mac', async () => {
 
       assert.equal(calls.length, 1);
       const payload = JSON.parse(String(calls[0]?.init?.body)) as {
-        events: Array<{ platform?: string }>;
+        events: Array<{ eventName: string; platform?: string }>;
       };
-      assert.equal(payload.events[0]?.platform, 'mac');
+      const onboardingStartEvent = payload.events.find((event) => event.eventName === 'onboarding:start');
+      assert.equal(onboardingStartEvent?.platform, 'mac');
     } finally {
       client.shutdown();
     }
@@ -333,9 +341,10 @@ test('includes projectSurface on emitted events when configured', async () => {
 
       assert.equal(calls.length, 1);
       const payload = JSON.parse(String(calls[0]?.init?.body)) as {
-        events: Array<{ projectSurface?: string }>;
+        events: Array<{ eventName: string; projectSurface?: string }>;
       };
-      assert.equal(payload.events[0]?.projectSurface, 'dashboard');
+      const onboardingStartEvent = payload.events.find((event) => event.eventName === 'onboarding:start');
+      assert.equal(onboardingStartEvent?.projectSurface, 'dashboard');
     } finally {
       client.shutdown();
     }
@@ -358,9 +367,10 @@ test('accepts null appVersion option without requiring undefined coalescing', as
 
       assert.equal(calls.length, 1);
       const payload = JSON.parse(String(calls[0]?.init?.body)) as {
-        events: Array<{ appVersion?: string }>;
+        events: Array<{ eventName: string; appVersion?: string }>;
       };
-      assert.equal(payload.events[0]?.appVersion, undefined);
+      const onboardingStartEvent = payload.events.find((event) => event.eventName === 'onboarding:start');
+      assert.equal(onboardingStartEvent?.appVersion, undefined);
     } finally {
       client.shutdown();
     }
@@ -459,7 +469,7 @@ test('initialConsentGranted=false requires explicit optIn() before tracking', as
       const payload = JSON.parse(String(calls[0]?.init?.body)) as {
         events: Array<{ eventName: string }>;
       };
-      assert.deepEqual(payload.events.map((event) => event.eventName), ['onboarding:complete']);
+      assert.deepEqual(eventNamesWithoutSessionStart(payload.events), ['onboarding:complete']);
     } finally {
       client.shutdown();
     }
@@ -562,7 +572,7 @@ test('screen() and feedback() use canonical event names', async () => {
         events: Array<{ eventName: string }>;
       };
 
-      const eventNames = payload.events.map((event) => event.eventName);
+      const eventNames = eventNamesWithoutSessionStart(payload.events);
       assert.deepEqual(eventNames, ['screen:welcome', 'feedback_submitted']);
     } finally {
       client.shutdown();
@@ -609,9 +619,10 @@ test('typed onboarding/paywall wrappers emit canonical event names', async () =>
       const payload = JSON.parse(String(calls[0]?.init?.body)) as {
         events: Array<{ eventName: string; properties?: Record<string, unknown> }>;
       };
+      const trackedEvents = withoutSessionStart(payload.events);
 
       assert.deepEqual(
-        payload.events.map((event) => event.eventName),
+        trackedEvents.map((event) => event.eventName),
         [
           ONBOARDING_EVENTS.START,
           PAYWALL_EVENTS.SHOWN,
@@ -619,14 +630,14 @@ test('typed onboarding/paywall wrappers emit canonical event names', async () =>
         ],
       );
       assert.deepEqual(
-        payload.events.map((event) => event.properties?.sessionEventIndex),
-        [1, 2, 3],
+        trackedEvents.map((event) => event.properties?.sessionEventIndex),
+        [2, 3, 4],
       );
-      assert.equal(payload.events[0]?.properties?.onboardingExperimentId, 'exp_onboarding_v4');
-      assert.equal(payload.events[1]?.properties?.offering, 'rc_main');
-      assert.equal(payload.events[2]?.properties?.offering, 'rc_main');
-      assert.equal(payload.events[1]?.properties?.paywallEntryId, undefined);
-      assert.equal(payload.events[2]?.properties?.paywallEntryId, undefined);
+      assert.equal(trackedEvents[0]?.properties?.onboardingExperimentId, 'exp_onboarding_v4');
+      assert.equal(trackedEvents[1]?.properties?.offering, 'rc_main');
+      assert.equal(trackedEvents[2]?.properties?.offering, 'rc_main');
+      assert.equal(trackedEvents[1]?.properties?.paywallEntryId, undefined);
+      assert.equal(trackedEvents[2]?.properties?.paywallEntryId, undefined);
     } finally {
       client.shutdown();
     }
@@ -663,9 +674,10 @@ test('createPaywallTracker() applies shared defaults and supports all journey he
       const payload = JSON.parse(String(calls[0]?.init?.body)) as {
         events: Array<{ eventName: string; properties?: Record<string, unknown> }>;
       };
+      const trackedEvents = withoutSessionStart(payload.events);
 
       assert.deepEqual(
-        payload.events.map((event) => event.eventName),
+        trackedEvents.map((event) => event.eventName),
         [
           PAYWALL_EVENTS.SHOWN,
           PURCHASE_EVENTS.STARTED,
@@ -674,7 +686,7 @@ test('createPaywallTracker() applies shared defaults and supports all journey he
         ],
       );
 
-      const first = payload.events[0]?.properties ?? {};
+      const first = trackedEvents[0]?.properties ?? {};
       assert.equal(first.source, 'onboarding');
       assert.equal(first.paywallId, 'default_paywall');
       assert.equal(first.offering, 'rc_main');
@@ -685,14 +697,14 @@ test('createPaywallTracker() applies shared defaults and supports all journey he
       assert.ok(String(first.paywallEntryId).length > 0);
 
       const firstEntryId = String(first.paywallEntryId);
-      const second = payload.events[1]?.properties ?? {};
-      const third = payload.events[2]?.properties ?? {};
+      const second = trackedEvents[1]?.properties ?? {};
+      const third = trackedEvents[2]?.properties ?? {};
       assert.equal(second.paywallEntryId, firstEntryId);
       assert.equal(third.paywallEntryId, firstEntryId);
       assert.equal(second.offering, undefined);
       assert.equal(third.offering, undefined);
 
-      const override = payload.events[3]?.properties ?? {};
+      const override = trackedEvents[3]?.properties ?? {};
       assert.equal(override.source, 'settings');
       assert.equal(override.paywallId, 'default_paywall');
       assert.equal(override.paywallEntryId, firstEntryId);
@@ -731,9 +743,10 @@ test('createPaywallTracker() rotates paywallEntryId per shown event and keeps of
       const payload = JSON.parse(String(calls[0]?.init?.body)) as {
         events: Array<{ eventName: string; properties?: Record<string, unknown> }>;
       };
+      const trackedEvents = withoutSessionStart(payload.events);
 
       assert.deepEqual(
-        payload.events.map((event) => event.eventName),
+        trackedEvents.map((event) => event.eventName),
         [
           PAYWALL_EVENTS.SHOWN,
           PURCHASE_EVENTS.STARTED,
@@ -742,10 +755,10 @@ test('createPaywallTracker() rotates paywallEntryId per shown event and keeps of
         ],
       );
 
-      const firstShown = payload.events[0]?.properties ?? {};
-      const firstPurchase = payload.events[1]?.properties ?? {};
-      const secondShown = payload.events[2]?.properties ?? {};
-      const secondPurchase = payload.events[3]?.properties ?? {};
+      const firstShown = trackedEvents[0]?.properties ?? {};
+      const firstPurchase = trackedEvents[1]?.properties ?? {};
+      const secondShown = trackedEvents[2]?.properties ?? {};
+      const secondPurchase = trackedEvents[3]?.properties ?? {};
 
       assert.equal(firstShown.offering, 'rc_main');
       assert.equal(secondShown.offering, 'rc_alt');
@@ -788,13 +801,14 @@ test('setUser()/identify() are blocked before full-tracking consent in consent-g
       const payload = JSON.parse(String(calls[0]?.init?.body)) as {
         events: Array<{ eventName: string; userId?: string | null; properties?: Record<string, unknown> }>;
       };
+      const trackedEvents = withoutSessionStart(payload.events);
 
       assert.deepEqual(
-        payload.events.map((event) => event.eventName),
+        trackedEvents.map((event) => event.eventName),
         ['feature:opened', 'feature:closed'],
       );
-      assert.equal(payload.events[0]?.userId, null);
-      assert.equal(payload.events[1]?.userId, null);
+      assert.equal(trackedEvents[0]?.userId, null);
+      assert.equal(trackedEvents[1]?.userId, null);
     } finally {
       client.shutdown();
     }
@@ -830,12 +844,14 @@ test('consent-gated default keeps identity ephemeral and ignores explicit identi
           properties?: Record<string, unknown>;
         }>;
       };
+      const trackedEvents = withoutSessionStart(payload.events);
+      const featureOpenedEvent = trackedEvents.find((event) => event.eventName === 'feature:opened');
 
-      assert.equal(payload.events.length, 1);
-      assert.equal(payload.events[0]?.eventName, 'feature:opened');
-      assert.equal(payload.events[0]?.userId, null);
-      assert.notEqual(payload.events[0]?.anonId, 'shared-anon');
-      assert.notEqual(payload.events[0]?.sessionId, 'shared-session');
+      assert.equal(trackedEvents.length, 1);
+      assert.ok(featureOpenedEvent);
+      assert.equal(featureOpenedEvent.userId, null);
+      assert.notEqual(featureOpenedEvent.anonId, 'shared-anon');
+      assert.notEqual(featureOpenedEvent.sessionId, 'shared-session');
       assert.equal(globalThis.localStorage.length, 0);
     } finally {
       client.shutdown();
@@ -869,13 +885,14 @@ test('setFullTrackingConsent(true) enables persistence and identity linkage', as
       const payload = JSON.parse(String(calls[0]?.init?.body)) as {
         events: Array<{ eventName: string; userId?: string | null }>;
       };
+      const trackedEvents = withoutSessionStart(payload.events);
 
       assert.deepEqual(
-        payload.events.map((event) => event.eventName),
+        trackedEvents.map((event) => event.eventName),
         ['identify', 'feature:opened'],
       );
-      assert.equal(payload.events[0]?.userId, 'user_123');
-      assert.equal(payload.events[1]?.userId, 'user_123');
+      assert.equal(trackedEvents[0]?.userId, 'user_123');
+      assert.equal(trackedEvents[1]?.userId, 'user_123');
       assert.equal(typeof globalThis.localStorage.getItem('pi_device_id'), 'string');
       assert.equal(typeof globalThis.localStorage.getItem('pi_session_id'), 'string');
     } finally {
@@ -910,12 +927,13 @@ test('enableFullTrackingWithoutConsent=true enables full tracking immediately', 
       const payload = JSON.parse(String(calls[0]?.init?.body)) as {
         events: Array<{ eventName: string; userId?: string | null }>;
       };
+      const trackedEvents = withoutSessionStart(payload.events);
       assert.deepEqual(
-        payload.events.map((event) => event.eventName),
+        trackedEvents.map((event) => event.eventName),
         ['identify', 'feature:opened'],
       );
-      assert.equal(payload.events[0]?.userId, 'user_999');
-      assert.equal(payload.events[1]?.userId, 'user_999');
+      assert.equal(trackedEvents[0]?.userId, 'user_999');
+      assert.equal(trackedEvents[1]?.userId, 'user_999');
       assert.equal(typeof globalThis.localStorage.getItem('pi_device_id'), 'string');
     } finally {
       client.shutdown();
@@ -966,15 +984,17 @@ test('setFullTrackingConsent() is a no-op in strict and always_on identity modes
       const strictPayload = JSON.parse(String(calls[0]?.init?.body)) as {
         events: Array<{ eventName: string; userId?: string | null }>;
       };
-      assert.deepEqual(strictPayload.events.map((event) => event.eventName), ['strict:event']);
-      assert.equal(strictPayload.events[0]?.userId, null);
+      const strictEvents = withoutSessionStart(strictPayload.events);
+      assert.deepEqual(strictEvents.map((event) => event.eventName), ['strict:event']);
+      assert.equal(strictEvents[0]?.userId, null);
 
       const alwaysPayload = JSON.parse(String(calls[1]?.init?.body)) as {
         events: Array<{ eventName: string; userId?: string | null }>;
       };
-      assert.deepEqual(alwaysPayload.events.map((event) => event.eventName), ['identify', 'always:event']);
-      assert.equal(alwaysPayload.events[0]?.userId, 'always_user');
-      assert.equal(alwaysPayload.events[1]?.userId, 'always_user');
+      const alwaysEvents = withoutSessionStart(alwaysPayload.events);
+      assert.deepEqual(alwaysEvents.map((event) => event.eventName), ['identify', 'always:event']);
+      assert.equal(alwaysEvents[0]?.userId, 'always_user');
+      assert.equal(alwaysEvents[1]?.userId, 'always_user');
     } finally {
       strictClient.shutdown();
       alwaysOnClient.shutdown();
@@ -1087,8 +1107,8 @@ test('onIngestError reports structured diagnostics for 401 and pauses repeated f
     assert.equal(first.retryable, false);
     assert.equal(first.attempts, 1);
     assert.equal(first.maxRetries, 4);
-    assert.equal(first.batchSize, 1);
-    assert.equal(first.queueSize, 1);
+    assert.equal(first.batchSize, 2);
+    assert.equal(first.queueSize, 2);
     assert.equal(typeof first.timestamp, 'string');
   } finally {
     client.shutdown();
@@ -1225,9 +1245,10 @@ test('dedupeOnboardingStepViewsPerSession is enabled by default and drops repeat
       const payload = JSON.parse(String(calls[0]?.init?.body)) as {
         events: Array<{ eventName: string; properties?: Record<string, unknown> }>;
       };
+      const trackedEvents = withoutSessionStart(payload.events);
 
       assert.deepEqual(
-        payload.events.map((event) => event.eventName),
+        trackedEvents.map((event) => event.eventName),
         [
           ONBOARDING_EVENTS.STEP_VIEW,
           ONBOARDING_EVENTS.STEP_VIEW,
@@ -1236,8 +1257,8 @@ test('dedupeOnboardingStepViewsPerSession is enabled by default and drops repeat
         ],
       );
       assert.deepEqual(
-        payload.events.map((event) => event.properties?.sessionEventIndex),
-        [1, 2, 3, 4],
+        trackedEvents.map((event) => event.properties?.sessionEventIndex),
+        [2, 3, 4, 5],
       );
     } finally {
       client.shutdown();
@@ -1280,14 +1301,15 @@ test('dedupeOnboardingStepViewsPerSession=false keeps repeated onboarding:step_v
       const payload = JSON.parse(String(calls[0]?.init?.body)) as {
         events: Array<{ eventName: string; properties?: Record<string, unknown> }>;
       };
+      const trackedEvents = withoutSessionStart(payload.events);
 
       assert.deepEqual(
-        payload.events.map((event) => event.eventName),
+        trackedEvents.map((event) => event.eventName),
         [ONBOARDING_EVENTS.STEP_VIEW, ONBOARDING_EVENTS.STEP_VIEW, PAYWALL_EVENTS.SHOWN],
       );
       assert.deepEqual(
-        payload.events.map((event) => event.properties?.sessionEventIndex),
-        [1, 2, 3],
+        trackedEvents.map((event) => event.properties?.sessionEventIndex),
+        [2, 3, 4],
       );
     } finally {
       client.shutdown();
@@ -1364,10 +1386,10 @@ test('dedupeOnboardingStepViewsPerSession resets across sessions', async () => {
       events: Array<{ eventName: string }>;
     };
 
-    assert.deepEqual(firstPayload.events.map((event) => event.eventName), [
+    assert.deepEqual(eventNamesWithoutSessionStart(firstPayload.events), [
       ONBOARDING_EVENTS.STEP_VIEW,
     ]);
-    assert.deepEqual(secondPayload.events.map((event) => event.eventName), [
+    assert.deepEqual(eventNamesWithoutSessionStart(secondPayload.events), [
       ONBOARDING_EVENTS.STEP_VIEW,
     ]);
   } finally {
@@ -1426,9 +1448,10 @@ test('createOnboardingTracker() applies shared onboarding defaults without affec
       const payload = JSON.parse(String(calls[0]?.init?.body)) as {
         events: Array<{ eventName: string; properties?: Record<string, unknown> }>;
       };
+      const trackedEvents = withoutSessionStart(payload.events);
 
       assert.deepEqual(
-        payload.events.map((event) => event.eventName),
+        trackedEvents.map((event) => event.eventName),
         [
           ONBOARDING_EVENTS.START,
           ONBOARDING_EVENTS.STEP_VIEW,
@@ -1438,14 +1461,14 @@ test('createOnboardingTracker() applies shared onboarding defaults without affec
         ],
       );
 
-      const startEvent = payload.events[0];
+      const startEvent = trackedEvents[0];
       assert.equal(startEvent?.properties?.onboardingFlowId, 'onboarding_v5');
       assert.equal(startEvent?.properties?.onboardingFlowVersion, '5.0.0');
       assert.equal(startEvent?.properties?.isNewUser, true);
       assert.equal(startEvent?.properties?.stepCount, 4);
       assert.equal(startEvent?.properties?.experimentVariant, 'B');
 
-      const surveyEvent = payload.events[3];
+      const surveyEvent = trackedEvents[3];
       assert.equal(surveyEvent?.properties?.surveyKey, 'onboarding_v5');
       assert.equal(surveyEvent?.properties?.questionKey, 'primary_goal');
       assert.equal(surveyEvent?.properties?.stepKey, 'welcome');
@@ -1474,7 +1497,11 @@ test('trackPaywallEvent() drops events missing required source property', async 
 
       await client.flush();
 
-      assert.equal(calls.length, 0);
+      assert.equal(calls.length, 1);
+      const payload = JSON.parse(String(calls[0]?.init?.body)) as {
+        events: Array<{ eventName: string }>;
+      };
+      assert.deepEqual(eventNamesWithoutSessionStart(payload.events), []);
     } finally {
       client.shutdown();
     }
@@ -1505,8 +1532,9 @@ test('trackPaywallEvent() ignores paywallEntryId in direct calls', async () => {
       const payload = JSON.parse(String(calls[0]?.init?.body)) as {
         events: Array<{ eventName: string; properties?: Record<string, unknown> }>;
       };
-      assert.equal(payload.events[0]?.eventName, PURCHASE_EVENTS.SUCCESS);
-      assert.equal(payload.events[0]?.properties?.paywallEntryId, undefined);
+      const purchaseSuccessEvent = payload.events.find((event) => event.eventName === PURCHASE_EVENTS.SUCCESS);
+      assert.ok(purchaseSuccessEvent);
+      assert.equal(purchaseSuccessEvent.properties?.paywallEntryId, undefined);
     } finally {
       client.shutdown();
     }
@@ -1691,6 +1719,7 @@ test('setContext() only emits allowed geo/os context fields', async () => {
 
       const payload = JSON.parse(String(calls[0]?.init?.body)) as {
         events: Array<{
+          eventName: string;
           osName?: string;
           osVersion?: string;
           deviceModel?: string;
@@ -1698,7 +1727,7 @@ test('setContext() only emits allowed geo/os context fields', async () => {
           country?: string;
         }>;
       };
-      const event = payload.events[0];
+      const event = payload.events.find((entry) => entry.eventName === 'app_open');
 
       assert.equal(event?.osName, 'iOS');
       assert.equal(event?.osVersion, '18.2');
@@ -1759,11 +1788,12 @@ test('trackOnboardingSurveyResponse() emits anonymized survey response payloads'
       const payload = JSON.parse(String(calls[0]?.init?.body)) as {
         events: Array<{ eventName: string; properties?: Record<string, unknown> }>;
       };
+      const responseEvents = withoutSessionStart(payload.events);
 
-      assert.ok(payload.events.length >= 5);
-      assert.ok(payload.events.every((event) => event.eventName === ONBOARDING_SURVEY_EVENTS.RESPONSE));
+      assert.ok(responseEvents.length >= 5);
+      assert.ok(responseEvents.every((event) => event.eventName === ONBOARDING_SURVEY_EVENTS.RESPONSE));
 
-      const first = payload.events[0]?.properties ?? {};
+      const first = responseEvents[0]?.properties ?? {};
       assert.equal(first.surveyKey, 'onboarding-v4');
       assert.equal(first.questionKey, 'motivation');
       assert.equal(first.responseKey, 'growth');
@@ -1771,10 +1801,10 @@ test('trackOnboardingSurveyResponse() emits anonymized survey response payloads'
       assert.equal(first.source, 'welcome_screen');
       assert.equal('email' in first, false);
 
-      const numeric = payload.events.find((event) => event.properties?.questionKey === 'team_size');
+      const numeric = responseEvents.find((event) => event.properties?.questionKey === 'team_size');
       assert.equal(numeric?.properties?.responseKey, '21_30');
 
-      const text = payload.events.find((event) => event.properties?.questionKey === 'feedback');
+      const text = responseEvents.find((event) => event.properties?.questionKey === 'feedback');
       assert.equal(text?.properties?.responseKey, 'text_len:31_80');
       assert.equal('responseText' in (text?.properties ?? {}), false);
     } finally {
@@ -1813,13 +1843,13 @@ test('initAsync() ignores persisted ids from async storage adapters in strict-on
 
       assert.equal(calls.length, 1);
       const payload = JSON.parse(String(calls[0]?.init?.body)) as {
-        events: Array<{ anonId: string; sessionId: string; properties?: Record<string, unknown> }>;
+        events: Array<{ eventName: string; anonId: string; sessionId: string; properties?: Record<string, unknown> }>;
       };
-      const event = payload.events[0];
+      const event = payload.events.find((entry) => entry.eventName === 'app_open');
 
       assert.notEqual(event?.anonId, 'persisted-device-id');
       assert.notEqual(event?.sessionId, 'persisted-session-id');
-      assert.equal(event?.properties?.sessionEventIndex, 1);
+      assert.equal(event?.properties?.sessionEventIndex, 2);
     } finally {
       client.shutdown();
     }
@@ -1857,13 +1887,13 @@ test('init() does not defer identity/session binding to async storage in strict-
 
       assert.equal(calls.length, 1);
       const payload = JSON.parse(String(calls[0]?.init?.body)) as {
-        events: Array<{ anonId: string; sessionId: string; properties?: Record<string, unknown> }>;
+        events: Array<{ eventName: string; anonId: string; sessionId: string; properties?: Record<string, unknown> }>;
       };
-      const event = payload.events[0];
+      const event = payload.events.find((entry) => entry.eventName === 'app_open');
 
       assert.notEqual(event?.anonId, 'persisted-device-id');
       assert.notEqual(event?.sessionId, 'persisted-session-id');
-      assert.equal(event?.properties?.sessionEventIndex, 1);
+      assert.equal(event?.properties?.sessionEventIndex, 2);
     } finally {
       client.shutdown();
     }
@@ -1918,13 +1948,13 @@ test('ignores AsyncStorage-style storage objects in strict-only mode', async () 
 
       assert.equal(calls.length, 1);
       const payload = JSON.parse(String(calls[0]?.init?.body)) as {
-        events: Array<{ anonId: string; sessionId: string; properties?: Record<string, unknown> }>;
+        events: Array<{ eventName: string; anonId: string; sessionId: string; properties?: Record<string, unknown> }>;
       };
-      const event = payload.events[0];
+      const event = payload.events.find((entry) => entry.eventName === 'app_open');
 
       assert.notEqual(event?.anonId, 'persisted-device-id');
       assert.notEqual(event?.sessionId, 'persisted-session-id');
-      assert.equal(event?.properties?.sessionEventIndex, 1);
+      assert.equal(event?.properties?.sessionEventIndex, 2);
     } finally {
       client.shutdown();
     }

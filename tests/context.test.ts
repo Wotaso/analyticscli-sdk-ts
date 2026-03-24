@@ -135,11 +135,11 @@ test('createAnalyticsContext() can bind an exported paywall tracker instance lat
       };
       assert.deepEqual(
         payload.events.map((event) => event.eventName),
-        ['paywall:shown', 'purchase:success'],
+        ['session_start', 'paywall:shown', 'purchase:success'],
       );
-      const paywallEntryId = payload.events[0]?.properties?.paywallEntryId;
+      const paywallEntryId = payload.events[1]?.properties?.paywallEntryId;
       assert.equal(typeof paywallEntryId, 'string');
-      assert.equal(payload.events[1]?.properties?.paywallEntryId, paywallEntryId);
+      assert.equal(payload.events[2]?.properties?.paywallEntryId, paywallEntryId);
     } finally {
       context.shutdown();
     }
@@ -162,6 +162,31 @@ test('createAnalyticsContext() accepts an existing AnalyticsClient instance', ()
   } finally {
     context.shutdown();
   }
+});
+
+test('createAnalyticsContext() emits session_start once per client instance', async () => {
+  await withMockedGlobals(async (calls) => {
+    const client = init({
+      apiKey: 'pi_live_test',
+      flushIntervalMs: 60_000,
+      maxRetries: 0,
+    });
+
+    const contextA = createAnalyticsContext({ client });
+    const contextB = createAnalyticsContext({ client });
+
+    try {
+      await contextA.flush();
+      assert.equal(calls.length, 1);
+      const payload = JSON.parse(String(calls[0]?.init?.body)) as {
+        events: Array<{ eventName: string }>;
+      };
+      assert.deepEqual(payload.events.map((event) => event.eventName), ['session_start']);
+    } finally {
+      contextA.shutdown();
+      contextB.shutdown();
+    }
+  });
 });
 
 test('createAnalyticsContext() forwards wrapper APIs for tracking, consent, user, and scoped factories', async () => {
