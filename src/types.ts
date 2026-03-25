@@ -333,6 +333,18 @@ export type AnalyticsClientOptions = {
    */
   dedupeOnboardingStepViewsPerSession?: boolean | null;
   /**
+   * Drops immediate duplicate `screen(...)` events for the same screen key within one session.
+   * This guards against double-fired focus/mount hooks while keeping intentional revisits intact.
+   * Defaults to `true`. Set to `false` to disable this behavior.
+   */
+  dedupeScreenViewsPerSession?: boolean | null;
+  /**
+   * Time window used by `dedupeScreenViewsPerSession` in milliseconds.
+   * A duplicate screen event emitted again within this window is dropped.
+   * Defaults to `1200`.
+   */
+  screenViewDedupeWindowMs?: number | null;
+  /**
    * Cookie domain for optional cookie-backed persistence.
    */
   cookieDomain?: string | null;

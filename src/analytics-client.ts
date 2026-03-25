@@ -12,6 +12,7 @@ import { validateIngestBatch, type IngestBatch } from './ingest-validation.js';
 import {
   DEFAULT_COLLECTOR_ENDPOINT,
   DEFAULT_COOKIE_MAX_AGE_SECONDS,
+  DEFAULT_SCREEN_VIEW_DEDUPE_WINDOW_MS,
   DEFAULT_SESSION_TIMEOUT_MS,
   DEVICE_ID_KEY,
   LAST_SEEN_KEY,
@@ -147,6 +148,8 @@ export class AnalyticsClient {
   private readonly hasExplicitInitialFullTrackingConsent: boolean;
   private readonly sessionTimeoutMs: number;
   private readonly dedupeOnboardingStepViewsPerSession: boolean;
+  private readonly dedupeScreenViewsPerSession: boolean;
+  private readonly screenViewDedupeWindowMs: number;
   private readonly runtimeEnv: 'production' | 'development';
   private readonly hasExplicitAnonId: boolean;
   private readonly hasExplicitSessionId: boolean;
@@ -166,6 +169,9 @@ export class AnalyticsClient {
   private deferredEventsBeforeHydration: Array<() => void> = [];
   private onboardingStepViewStateSessionId: string | null = null;
   private onboardingStepViewsSeen = new Set<string>();
+  private lastScreenViewDedupeSessionId: string | null = null;
+  private lastScreenViewDedupeKey: string | null = null;
+  private lastScreenViewDedupeTsMs = 0;
   private flushPausedUntilMs = 0;
 
   constructor(options: AnalyticsClientOptions) {
@@ -208,6 +214,10 @@ export class AnalyticsClient {
     this.sessionTimeoutMs = normalizedOptions.sessionTimeoutMs ?? DEFAULT_SESSION_TIMEOUT_MS;
     this.dedupeOnboardingStepViewsPerSession =
       normalizedOptions.dedupeOnboardingStepViewsPerSession ?? true;
+    this.dedupeScreenViewsPerSession = normalizedOptions.dedupeScreenViewsPerSession ?? true;
+    this.screenViewDedupeWindowMs = this.normalizeScreenViewDedupeWindowMs(
+      normalizedOptions.screenViewDedupeWindowMs,
+    );
     this.configuredStorage = this.resolveConfiguredStorage(normalizedOptions);
 
     const persistedFullTrackingConsent = this.readPersistedConsentSync(this.configuredStorage);
@@ -716,6 +726,9 @@ export class AnalyticsClient {
     }
 
     const sessionId = this.getSessionId();
+    if (this.shouldDropScreenView(name, properties, sessionId)) {
+      return;
+    }
     this.enqueue({
       eventId: randomId(),
       eventName: `screen:${name}`,
@@ -1283,6 +1296,62 @@ export class AnalyticsClient {
     return false;
   }
 
+  private shouldDropScreenView(
+    name: string,
+    properties: EventProperties | undefined,
+    sessionId: string,
+  ): boolean {
+    if (!this.dedupeScreenViewsPerSession) {
+      return false;
+    }
+
+    const dedupeKey = this.getScreenViewDedupeKey(name, properties);
+    if (!dedupeKey) {
+      return false;
+    }
+
+    const nowMs = Date.now();
+    if (this.lastScreenViewDedupeSessionId !== sessionId) {
+      this.lastScreenViewDedupeSessionId = sessionId;
+      this.lastScreenViewDedupeKey = null;
+      this.lastScreenViewDedupeTsMs = 0;
+    }
+
+    const withinWindow =
+      this.lastScreenViewDedupeKey === dedupeKey &&
+      nowMs - this.lastScreenViewDedupeTsMs <= this.screenViewDedupeWindowMs;
+    if (withinWindow) {
+      this.log('Dropping duplicate screen view for session', {
+        sessionId,
+        dedupeKey,
+        windowMs: this.screenViewDedupeWindowMs,
+      });
+      return true;
+    }
+
+    this.lastScreenViewDedupeSessionId = sessionId;
+    this.lastScreenViewDedupeKey = dedupeKey;
+    this.lastScreenViewDedupeTsMs = nowMs;
+    return false;
+  }
+
+  private getScreenViewDedupeKey(
+    name: string,
+    properties: EventProperties | undefined,
+  ): string | null {
+    const normalizedName = toStableKey(name);
+    if (!normalizedName) {
+      return null;
+    }
+
+    const screenClass =
+      properties && typeof properties === 'object'
+        ? toStableKey(this.readPropertyAsString(properties.screen_class))
+        : null;
+    const resolvedScreenClass = screenClass ?? normalizedName;
+    return `${normalizedName}|${resolvedScreenClass}`;
+  }
+
   private getOnboardingStepViewDedupeKey(properties: EventProperties | undefined): string | null {
     if (!properties) {
       return null;
@@ -1438,6 +1507,13 @@ export class AnalyticsClient {
   private normalizeCookieMaxAgeSeconds(value: unknown): number {
     if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
       return DEFAULT_COOKIE_MAX_AGE_SECONDS;
+    }
+    return Math.floor(value);
+  }
+
+  private normalizeScreenViewDedupeWindowMs(value: unknown): number {
+    if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
+      return DEFAULT_SCREEN_VIEW_DEDUPE_WINDOW_MS;
     }
     return Math.floor(value);
   }

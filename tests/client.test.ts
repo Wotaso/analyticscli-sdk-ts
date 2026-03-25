@@ -1317,6 +1317,142 @@ test('dedupeOnboardingStepViewsPerSession=false keeps repeated onboarding:step_v
   });
 });
 
+test('dedupeScreenViewsPerSession is enabled by default and drops immediate duplicate screen events', async () => {
+  await withMockedGlobals(async (calls) => {
+    const client = init({
+      apiKey: 'pi_live_test',
+      endpoint: 'https://collector.analyticscli.com',
+      batchSize: 20,
+      flushIntervalMs: 60_000,
+      maxRetries: 0,
+    });
+
+    try {
+      client.screen('paywall', {
+        screen_class: '/paywall',
+        origin: 'onboarding',
+      });
+      client.screen('paywall', {
+        screen_class: '/paywall',
+      });
+      client.screen('home', {
+        screen_class: '/home',
+      });
+
+      await client.flush();
+
+      assert.equal(calls.length, 1);
+      const payload = JSON.parse(String(calls[0]?.init?.body)) as {
+        events: Array<{ eventName: string; properties?: Record<string, unknown> }>;
+      };
+      const trackedEvents = withoutSessionStart(payload.events);
+
+      assert.deepEqual(
+        trackedEvents.map((event) => event.eventName),
+        ['screen:paywall', 'screen:home'],
+      );
+      assert.deepEqual(
+        trackedEvents.map((event) => event.properties?.sessionEventIndex),
+        [2, 3],
+      );
+    } finally {
+      client.shutdown();
+    }
+  });
+});
+
+test('dedupeScreenViewsPerSession=false keeps immediate duplicate screen events', async () => {
+  await withMockedGlobals(async (calls) => {
+    const client = init({
+      apiKey: 'pi_live_test',
+      endpoint: 'https://collector.analyticscli.com',
+      batchSize: 20,
+      flushIntervalMs: 60_000,
+      maxRetries: 0,
+      dedupeScreenViewsPerSession: false,
+    });
+
+    try {
+      client.screen('paywall', {
+        screen_class: '/paywall',
+      });
+      client.screen('paywall', {
+        screen_class: '/paywall',
+      });
+
+      await client.flush();
+
+      assert.equal(calls.length, 1);
+      const payload = JSON.parse(String(calls[0]?.init?.body)) as {
+        events: Array<{ eventName: string; properties?: Record<string, unknown> }>;
+      };
+      const trackedEvents = withoutSessionStart(payload.events);
+
+      assert.deepEqual(
+        trackedEvents.map((event) => event.eventName),
+        ['screen:paywall', 'screen:paywall'],
+      );
+      assert.deepEqual(
+        trackedEvents.map((event) => event.properties?.sessionEventIndex),
+        [2, 3],
+      );
+    } finally {
+      client.shutdown();
+    }
+  });
+});
+
+test('screenViewDedupeWindowMs only drops screen duplicates inside the configured window', async () => {
+  await withMockedGlobals(async (calls) => {
+    const client = init({
+      apiKey: 'pi_live_test',
+      endpoint: 'https://collector.analyticscli.com',
+      batchSize: 20,
+      flushIntervalMs: 60_000,
+      maxRetries: 0,
+      screenViewDedupeWindowMs: 500,
+    });
+
+    const originalNow = Date.now;
+    let nowMs = 1_000;
+    Date.now = () => nowMs;
+
+    try {
+      client.screen('paywall', {
+        screen_class: '/paywall',
+      });
+      nowMs = 1_300;
+      client.screen('paywall', {
+        screen_class: '/paywall',
+      });
+      nowMs = 1_800;
+      client.screen('paywall', {
+        screen_class: '/paywall',
+      });
+
+      await client.flush();
+
+      assert.equal(calls.length, 1);
+      const payload = JSON.parse(String(calls[0]?.init?.body)) as {
+        events: Array<{ eventName: string; properties?: Record<string, unknown> }>;
+      };
+      const trackedEvents = withoutSessionStart(payload.events);
+
+      assert.deepEqual(
+        trackedEvents.map((event) => event.eventName),
+        ['screen:paywall', 'screen:paywall'],
+      );
+      assert.deepEqual(
+        trackedEvents.map((event) => event.properties?.sessionEventIndex),
+        [2, 3],
+      );
+    } finally {
+      Date.now = originalNow;
+      client.shutdown();
+    }
+  });
+});
+
 test('dedupeOnboardingStepViewsPerSession resets across sessions', async () => {
   const storage = createMemoryStorage();
   const calls: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];

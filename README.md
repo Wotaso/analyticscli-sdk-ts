@@ -121,6 +121,8 @@ const analytics = createAnalyticsContext({
     identityTrackingMode: 'consent_gated',
     initialFullTrackingConsentGranted: false,
     dedupeOnboardingStepViewsPerSession: true,
+    dedupeScreenViewsPerSession: true,
+    screenViewDedupeWindowMs: 1200,
   },
   onboarding: {
     onboardingFlowId: 'onboarding_main',
@@ -137,10 +139,13 @@ The SDK normalizes React Native/Expo platform values to canonical ingest values
 Use `projectSurface` for product/channel separation (`landing`, `dashboard`, `app`)
 without overloading runtime `platform` (`web`, `ios`, `android`, ...).
 
-`dedupeOnboardingStepViewsPerSession` only dedupes duplicate
-`onboarding:step_view` events for the same step in the same session (for
-example, when React effects fire twice or the screen remounts). It does not
-dedupe paywall events, purchase events, or `screen(...)` calls.
+`dedupeOnboardingStepViewsPerSession` dedupes duplicate `onboarding:step_view`
+events for the same step in the same session.
+`dedupeScreenViewsPerSession` dedupes immediate duplicate `screen(...)` calls
+for the same screen key in the same session (for example, when focus and mount
+hooks both fire for one transition). `screenViewDedupeWindowMs` controls this
+window (default `1200` ms).
+Neither setting dedupes paywall or purchase events.
 
 For paywall funnels with stable `source` + `paywallId`, create one tracker per
 flow context and reuse it:
