@@ -175,6 +175,12 @@ onboarding.step('budget-survey', 6).surveyResponse({
 });
 ```
 
+Lean onboarding event strategy (recommended):
+- Emit `onboarding:step_view` as the default per-step progress signal.
+- Emit `onboarding:step_complete` only when the step has explicit completion semantics
+  (for example submit/continue confirmation or async success).
+- For survey steps, `onboarding:step_view` + `onboarding:survey_response` is usually enough.
+
 For RevenueCat correlation, keep identity and paywall purchase metadata aligned:
 
 ```ts
