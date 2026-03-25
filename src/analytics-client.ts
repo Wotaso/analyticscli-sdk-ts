@@ -473,6 +473,7 @@ export class AnalyticsClient {
     }
 
     const sessionId = this.getSessionId();
+    this.resetOnboardingDedupeStateOnFlowStart(eventName, sessionId);
     if (this.shouldDropOnboardingStepView(eventName, properties, sessionId)) {
       return;
     }
@@ -1309,6 +1310,25 @@ export class AnalyticsClient {
     this.onboardingStepViewsSeen.add(dedupeKey);
     this.persistOnboardingStepViewState(sessionId);
     return false;
+  }
+
+  private resetOnboardingDedupeStateOnFlowStart(eventName: string, sessionId: string): void {
+    if (eventName !== ONBOARDING_EVENTS.START) {
+      return;
+    }
+
+    if (this.dedupeOnboardingStepViewsPerSession) {
+      this.syncOnboardingStepViewState(sessionId);
+      if (this.onboardingStepViewsSeen.size > 0) {
+        this.onboardingStepViewsSeen.clear();
+        this.persistOnboardingStepViewState(sessionId);
+      }
+    }
+
+    if (this.dedupeOnboardingScreenStepViewOverlapsPerSession) {
+      this.onboardingScreenStepViewOverlapSessionId = sessionId;
+      this.onboardingStepViewsSeenAtMs = new Map<string, number>();
+    }
   }
 
   private shouldDropScreenView(

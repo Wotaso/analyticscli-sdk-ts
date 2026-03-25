@@ -127,6 +127,8 @@ without overloading runtime `platform` (`web`, `ios`, `android`, ...).
 
 `dedupeOnboardingStepViewsPerSession` dedupes duplicate `onboarding:step_view`
 events for the same step in the same session.
+When a new `onboarding:start` is emitted in the same session, step-view dedupe
+state resets for that flow attempt.
 `dedupeScreenViewsPerSession` dedupes immediate duplicate `screen(...)` calls
 for the same screen key in the same session (for example, when focus and mount
 hooks both fire for one transition). `screenViewDedupeWindowMs` controls this

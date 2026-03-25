@@ -1345,6 +1345,62 @@ test('dedupeOnboardingStepViewsPerSession=false keeps repeated onboarding:step_v
   });
 });
 
+test('dedupeOnboardingStepViewsPerSession resets when onboarding:start is emitted again in the same session', async () => {
+  await withMockedGlobals(async (calls) => {
+    const client = init({
+      apiKey: 'pi_live_test',
+      endpoint: 'https://collector.analyticscli.com',
+      batchSize: 20,
+      flushIntervalMs: 60_000,
+      maxRetries: 0,
+    });
+
+    try {
+      client.trackOnboardingEvent(ONBOARDING_EVENTS.START, {
+        onboardingFlowId: 'onboarding_main',
+        onboardingFlowVersion: '1',
+      });
+      client.trackOnboardingEvent(ONBOARDING_EVENTS.STEP_VIEW, {
+        onboardingFlowId: 'onboarding_main',
+        onboardingFlowVersion: '1',
+        stepKey: 'design-creation',
+        stepIndex: 0,
+      });
+
+      client.trackOnboardingEvent(ONBOARDING_EVENTS.START, {
+        onboardingFlowId: 'onboarding_main',
+        onboardingFlowVersion: '1',
+      });
+      client.trackOnboardingEvent(ONBOARDING_EVENTS.STEP_VIEW, {
+        onboardingFlowId: 'onboarding_main',
+        onboardingFlowVersion: '1',
+        stepKey: 'design-creation',
+        stepIndex: 0,
+      });
+
+      await client.flush();
+
+      assert.equal(calls.length, 1);
+      const payload = JSON.parse(String(calls[0]?.init?.body)) as {
+        events: Array<{ eventName: string; properties?: Record<string, unknown> }>;
+      };
+      const trackedEvents = withoutSessionStart(payload.events);
+
+      assert.deepEqual(
+        trackedEvents.map((event) => event.eventName),
+        [
+          ONBOARDING_EVENTS.START,
+          ONBOARDING_EVENTS.STEP_VIEW,
+          ONBOARDING_EVENTS.START,
+          ONBOARDING_EVENTS.STEP_VIEW,
+        ],
+      );
+    } finally {
+      client.shutdown();
+    }
+  });
+});
+
 test('dedupeScreenViewsPerSession is enabled by default and drops immediate duplicate screen events', async () => {
   await withMockedGlobals(async (calls) => {
     const client = init({
