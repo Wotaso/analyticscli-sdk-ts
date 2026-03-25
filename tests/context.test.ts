@@ -211,7 +211,6 @@ test('createAnalyticsContext() forwards wrapper APIs for tracking, consent, user
         appBuild: '100',
         osName: 'ios',
         osVersion: '17',
-        country: 'DE',
         region: 'BE',
         city: 'Berlin',
       });

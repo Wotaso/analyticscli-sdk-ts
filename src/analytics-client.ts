@@ -1560,7 +1560,6 @@ export class AnalyticsClient {
       appBuild: this.context.appBuild,
       osName: this.context.osName,
       osVersion: this.context.osVersion,
-      country: this.context.country,
       region: this.context.region,
       city: this.context.city,
     };

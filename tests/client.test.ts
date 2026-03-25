@@ -1828,7 +1828,7 @@ test('does not write cookies by default when cookie storage is not enabled', asy
   }
 });
 
-test('setContext() only emits allowed geo/os context fields', async () => {
+test('setContext() only emits allowed context fields', async () => {
   await withMockedGlobals(async (calls) => {
     const client = init({
       apiKey: 'pi_live_test',
@@ -1842,7 +1842,6 @@ test('setContext() only emits allowed geo/os context fields', async () => {
       client.setContext({
         osName: 'iOS',
         osVersion: '18.2',
-        country: 'US',
       });
       client.setContext(
         {
@@ -1867,7 +1866,7 @@ test('setContext() only emits allowed geo/os context fields', async () => {
 
       assert.equal(event?.osName, 'iOS');
       assert.equal(event?.osVersion, '18.2');
-      assert.equal(event?.country, 'US');
+      assert.equal(event?.country, undefined);
       assert.equal(event?.deviceModel, undefined);
       assert.equal(event?.locale, undefined);
     } finally {

@@ -33,7 +33,6 @@ export type EventContext = {
   appBuild?: string;
   osName?: string;
   osVersion?: string;
-  country?: string;
   region?: string;
   city?: string;
 };
