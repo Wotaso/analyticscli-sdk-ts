@@ -580,6 +580,34 @@ test('screen() and feedback() use canonical event names', async () => {
   });
 });
 
+test('screen() normalizes route-like names before enqueueing', async () => {
+  await withMockedGlobals(async (calls) => {
+    const client = init({
+      apiKey: 'pi_live_test',
+      endpoint: 'https://collector.analyticscli.com',
+      batchSize: 20,
+      flushIntervalMs: 60_000,
+      maxRetries: 0,
+    });
+
+    try {
+      client.screen('/onboarding/welcome');
+      client.screen('/');
+      await client.flush();
+
+      assert.equal(calls.length, 1);
+      const payload = JSON.parse(String(calls[0]?.init?.body)) as {
+        events: Array<{ eventName: string }>;
+      };
+
+      const eventNames = eventNamesWithoutSessionStart(payload.events);
+      assert.deepEqual(eventNames, ['screen:onboarding_welcome', 'screen:root']);
+    } finally {
+      client.shutdown();
+    }
+  });
+});
+
 test('typed onboarding/paywall wrappers emit canonical event names', async () => {
   await withMockedGlobals(async (calls) => {
     const client = init({

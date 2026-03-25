@@ -717,21 +717,27 @@ export class AnalyticsClient {
       return;
     }
 
+    const normalizedScreenName = this.normalizeScreenName(name);
+    if (!normalizedScreenName) {
+      this.log('Dropping screen event with invalid name', { name });
+      return;
+    }
+
     if (this.shouldDeferEventsUntilHydrated()) {
       const deferredProperties = this.cloneProperties(properties);
       this.deferEventUntilHydrated(() => {
-        this.screen(name, deferredProperties);
+        this.screen(normalizedScreenName, deferredProperties);
       });
       return;
     }
 
     const sessionId = this.getSessionId();
-    if (this.shouldDropScreenView(name, properties, sessionId)) {
+    if (this.shouldDropScreenView(normalizedScreenName, properties, sessionId)) {
       return;
     }
     this.enqueue({
       eventId: randomId(),
-      eventName: `screen:${name}`,
+      eventName: `screen:${normalizedScreenName}`,
       ts: nowIso(),
       sessionId,
       anonId: this.anonId,
@@ -1350,6 +1356,27 @@ export class AnalyticsClient {
         : null;
     const resolvedScreenClass = screenClass ?? normalizedName;
     return `${normalizedName}|${resolvedScreenClass}`;
+  }
+
+  private normalizeScreenName(name: string): string | null {
+    const trimmed = this.readRequiredStringOption(name);
+    if (!trimmed) {
+      return null;
+    }
+
+    const withoutEdgeSlashes = trimmed.replace(/^\/+|\/+$/g, '');
+    const candidate = withoutEdgeSlashes || 'root';
+    const normalized = candidate
+      .replace(/[^a-zA-Z0-9_:\-.]/g, '_')
+      .replace(/_+/g, '_')
+      .replace(/^_+|_+$/g, '');
+
+    if (!normalized) {
+      return null;
+    }
+
+    const maxScreenNameLength = 100 - 'screen:'.length;
+    return normalized.slice(0, maxScreenNameLength);
   }
 
   private getOnboardingStepViewDedupeKey(properties: EventProperties | undefined): string | null {
