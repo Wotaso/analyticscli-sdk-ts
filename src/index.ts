@@ -45,13 +45,6 @@ export type {
 } from './types.js';
 
 export { AnalyticsClient } from './analytics-client.js';
-export {
-  createAnalyticsContext,
-  type AnalyticsContext,
-  type AnalyticsContextConsentControls,
-  type AnalyticsContextUserControls,
-  type CreateAnalyticsContextOptions,
-} from './context.js';
 import { AnalyticsClient } from './analytics-client.js';
 import type { InitInput, InitOptions } from './types.js';
 

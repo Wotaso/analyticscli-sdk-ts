@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createAnalyticsContext as createBrowserAnalyticsContext } from '../src/browser.js';
-import { createAnalyticsContext as createReactNativeAnalyticsContext } from '../src/react-native.js';
+import { init as initBrowserClient } from '../src/browser.js';
+import { init as initReactNativeClient } from '../src/react-native.js';
 
 const createMemoryStorage = (): Storage => {
   const map = new Map<string, string>();
@@ -49,7 +49,7 @@ const withMockedFetch = async (
   }
 };
 
-test('browser entrypoint exports createAnalyticsContext and sends events', async () => {
+test('browser entrypoint exports init and sends events', async () => {
   await withMockedFetch(async (calls) => {
     const originalLocalStorage = globalThis.localStorage;
     Object.defineProperty(globalThis, 'localStorage', {
@@ -58,23 +58,21 @@ test('browser entrypoint exports createAnalyticsContext and sends events', async
       writable: true,
     });
 
-    const context = createBrowserAnalyticsContext({
-      client: {
-        apiKey: 'pi_live_browser',
-        flushIntervalMs: 60_000,
-        maxRetries: 0,
-      },
+    const client = initBrowserClient({
+      apiKey: 'pi_live_browser',
+      flushIntervalMs: 60_000,
+      maxRetries: 0,
     });
 
     try {
-      context.track('onboarding:start');
-      await context.flush();
+      client.track('onboarding:start');
+      await client.flush();
 
       assert.equal(calls.length, 1);
       const headers = (calls[0]?.init?.headers ?? {}) as Record<string, string>;
       assert.equal(headers['x-api-key'], 'pi_live_browser');
     } finally {
-      context.shutdown();
+      client.shutdown();
       if (originalLocalStorage) {
         Object.defineProperty(globalThis, 'localStorage', {
           value: originalLocalStorage,
@@ -88,25 +86,23 @@ test('browser entrypoint exports createAnalyticsContext and sends events', async
   });
 });
 
-test('react-native entrypoint exports createAnalyticsContext and sends events', async () => {
+test('react-native entrypoint exports init and sends events', async () => {
   await withMockedFetch(async (calls) => {
-    const context = createReactNativeAnalyticsContext({
-      client: {
-        apiKey: 'pi_live_react_native',
-        flushIntervalMs: 60_000,
-        maxRetries: 0,
-      },
+    const client = initReactNativeClient({
+      apiKey: 'pi_live_react_native',
+      flushIntervalMs: 60_000,
+      maxRetries: 0,
     });
 
     try {
-      context.track('onboarding:start');
-      await context.flush();
+      client.track('onboarding:start');
+      await client.flush();
 
       assert.equal(calls.length, 1);
       const headers = (calls[0]?.init?.headers ?? {}) as Record<string, string>;
       assert.equal(headers['x-api-key'], 'pi_live_react_native');
     } finally {
-      context.shutdown();
+      client.shutdown();
     }
   });
 });
