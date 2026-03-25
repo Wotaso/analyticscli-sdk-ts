@@ -1,6 +1,6 @@
 {
   "name": "@analyticscli/sdk",
-  "version": "0.1.0-preview.9",
+  "version": "0.1.0-preview.10",
   "description": "TypeScript SDK for sending onboarding, paywall, purchase and survey analytics events to AnalyticsCLI.",
   "license": "MIT",
   "type": "module",
