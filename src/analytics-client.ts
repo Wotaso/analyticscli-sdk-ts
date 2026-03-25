@@ -149,6 +149,7 @@ export class AnalyticsClient {
   private readonly sessionTimeoutMs: number;
   private readonly dedupeOnboardingStepViewsPerSession: boolean;
   private readonly dedupeScreenViewsPerSession: boolean;
+  private readonly dedupeOnboardingScreenStepViewOverlapsPerSession: boolean;
   private readonly screenViewDedupeWindowMs: number;
   private readonly runtimeEnv: 'production' | 'development';
   private readonly hasExplicitAnonId: boolean;
@@ -169,6 +170,8 @@ export class AnalyticsClient {
   private deferredEventsBeforeHydration: Array<() => void> = [];
   private onboardingStepViewStateSessionId: string | null = null;
   private onboardingStepViewsSeen = new Set<string>();
+  private onboardingScreenStepViewOverlapSessionId: string | null = null;
+  private onboardingStepViewsSeenAtMs = new Map<string, number>();
   private lastScreenViewDedupeSessionId: string | null = null;
   private lastScreenViewDedupeKey: string | null = null;
   private lastScreenViewDedupeTsMs = 0;
@@ -215,6 +218,8 @@ export class AnalyticsClient {
     this.dedupeOnboardingStepViewsPerSession =
       normalizedOptions.dedupeOnboardingStepViewsPerSession ?? true;
     this.dedupeScreenViewsPerSession = normalizedOptions.dedupeScreenViewsPerSession ?? true;
+    this.dedupeOnboardingScreenStepViewOverlapsPerSession =
+      normalizedOptions.dedupeOnboardingScreenStepViewOverlapsPerSession ?? true;
     this.screenViewDedupeWindowMs = this.normalizeScreenViewDedupeWindowMs(
       normalizedOptions.screenViewDedupeWindowMs,
     );
@@ -471,6 +476,7 @@ export class AnalyticsClient {
     if (this.shouldDropOnboardingStepView(eventName, properties, sessionId)) {
       return;
     }
+    this.dedupeOnboardingScreenStepViewOverlap(eventName, properties, sessionId);
     this.enqueue({
       eventId: randomId(),
       eventName,
@@ -733,6 +739,9 @@ export class AnalyticsClient {
 
     const sessionId = this.getSessionId();
     if (this.shouldDropScreenView(normalizedScreenName, properties, sessionId)) {
+      return;
+    }
+    if (this.shouldDropOnboardingScreenViewOverlap(normalizedScreenName, properties, sessionId)) {
       return;
     }
     this.enqueue({
@@ -1339,6 +1348,232 @@ export class AnalyticsClient {
     this.lastScreenViewDedupeKey = dedupeKey;
     this.lastScreenViewDedupeTsMs = nowMs;
     return false;
+  }
+
+  private dedupeOnboardingScreenStepViewOverlap(
+    eventName: string,
+    properties: EventProperties | undefined,
+    sessionId: string,
+  ): void {
+    if (
+      !this.dedupeOnboardingScreenStepViewOverlapsPerSession ||
+      eventName !== ONBOARDING_EVENTS.STEP_VIEW
+    ) {
+      return;
+    }
+
+    const overlapKey = this.getOnboardingScreenStepViewOverlapKeyForStepView(properties);
+    if (!overlapKey) {
+      return;
+    }
+
+    const nowMs = Date.now();
+    this.syncOnboardingScreenStepViewOverlapState(sessionId, nowMs);
+    this.onboardingStepViewsSeenAtMs.set(overlapKey, nowMs);
+
+    const dropped = this.dropQueuedOnboardingScreenEventsForStep(sessionId, overlapKey, nowMs);
+    if (dropped > 0) {
+      this.log('Dropping overlapping onboarding screen events in favor of onboarding:step_view', {
+        sessionId,
+        overlapKey,
+        dropped,
+        windowMs: this.screenViewDedupeWindowMs,
+      });
+    }
+  }
+
+  private shouldDropOnboardingScreenViewOverlap(
+    name: string,
+    properties: EventProperties | undefined,
+    sessionId: string,
+  ): boolean {
+    if (!this.dedupeOnboardingScreenStepViewOverlapsPerSession) {
+      return false;
+    }
+
+    const overlapKey = this.getOnboardingScreenStepViewOverlapKeyForScreen(name, properties);
+    if (!overlapKey) {
+      return false;
+    }
+
+    const nowMs = Date.now();
+    this.syncOnboardingScreenStepViewOverlapState(sessionId, nowMs);
+    const seenAt = this.onboardingStepViewsSeenAtMs.get(overlapKey);
+    if (seenAt === undefined) {
+      return false;
+    }
+
+    if (nowMs - seenAt > this.screenViewDedupeWindowMs) {
+      return false;
+    }
+
+    this.log('Dropping overlapping onboarding screen event because onboarding:step_view already exists', {
+      sessionId,
+      overlapKey,
+      windowMs: this.screenViewDedupeWindowMs,
+    });
+    return true;
+  }
+
+  private syncOnboardingScreenStepViewOverlapState(sessionId: string, nowMs: number): void {
+    if (this.onboardingScreenStepViewOverlapSessionId !== sessionId) {
+      this.onboardingScreenStepViewOverlapSessionId = sessionId;
+      this.onboardingStepViewsSeenAtMs = new Map<string, number>();
+    }
+
+    for (const [key, ts] of this.onboardingStepViewsSeenAtMs.entries()) {
+      if (nowMs - ts > this.screenViewDedupeWindowMs) {
+        this.onboardingStepViewsSeenAtMs.delete(key);
+      }
+    }
+  }
+
+  private dropQueuedOnboardingScreenEventsForStep(
+    sessionId: string,
+    overlapKey: string,
+    nowMs: number,
+  ): number {
+    if (this.queue.length === 0) {
+      return 0;
+    }
+
+    const before = this.queue.length;
+    this.queue = this.queue.filter((event) => {
+      if (event.type !== 'screen' || event.sessionId !== sessionId) {
+        return true;
+      }
+
+      const screenName = event.eventName.startsWith('screen:')
+        ? event.eventName.slice('screen:'.length)
+        : event.eventName;
+      const eventOverlapKey = this.getOnboardingScreenStepViewOverlapKeyForScreen(
+        screenName,
+        event.properties,
+      );
+      if (!eventOverlapKey || eventOverlapKey !== overlapKey) {
+        return true;
+      }
+
+      const eventTsMs = Date.parse(event.ts);
+      if (!Number.isFinite(eventTsMs)) {
+        return true;
+      }
+
+      const deltaMs = nowMs - eventTsMs;
+      if (deltaMs < 0 || deltaMs > this.screenViewDedupeWindowMs) {
+        return true;
+      }
+
+      return false;
+    });
+
+    return before - this.queue.length;
+  }
+
+  private getOnboardingScreenStepViewOverlapKeyForStepView(
+    properties: EventProperties | undefined,
+  ): string | null {
+    if (!properties) {
+      return null;
+    }
+
+    const stepKey = toStableKey(this.readPropertyAsString(properties.stepKey));
+    if (stepKey) {
+      return `step:${stepKey}`;
+    }
+
+    const stepIndex = this.readPropertyAsStepIndex(properties.stepIndex);
+    if (stepIndex === undefined) {
+      return null;
+    }
+
+    const flowId = toStableKey(this.readPropertyAsString(properties.onboardingFlowId)) ?? 'unknown_flow';
+    const flowVersion =
+      toStableKey(this.readPropertyAsString(properties.onboardingFlowVersion)) ?? 'unknown_version';
+    return `index:${flowId}|${flowVersion}|${stepIndex}`;
+  }
+
+  private getOnboardingScreenStepViewOverlapKeyForScreen(
+    name: string,
+    properties: EventProperties | undefined,
+  ): string | null {
+    const normalizedName = toStableKey(name);
+    const normalizedScreenClassName =
+      properties && typeof properties === 'object'
+        ? this.normalizeScreenName(this.readPropertyAsString(properties.screen_class) ?? '')
+        : null;
+    const normalizedScreenClass = toStableKey(normalizedScreenClassName ?? undefined);
+    const isOnboardingScreen =
+      this.isOnboardingScreenName(normalizedName) || this.isOnboardingScreenName(normalizedScreenClass);
+    if (!isOnboardingScreen) {
+      return null;
+    }
+
+    const explicitStepKey =
+      properties && typeof properties === 'object'
+        ? toStableKey(this.readPropertyAsString(properties.stepKey))
+        : undefined;
+    if (explicitStepKey) {
+      return `step:${explicitStepKey}`;
+    }
+
+    const stepKeyFromName = this.extractOnboardingStepKeyFromScreenName(normalizedName ?? name);
+    if (stepKeyFromName) {
+      return `step:${stepKeyFromName}`;
+    }
+
+    const stepKeyFromScreenClass = this.extractOnboardingStepKeyFromScreenName(
+      normalizedScreenClassName ?? '',
+    );
+    if (stepKeyFromScreenClass) {
+      return `step:${stepKeyFromScreenClass}`;
+    }
+
+    const stepIndex =
+      properties && typeof properties === 'object'
+        ? this.readPropertyAsStepIndex(properties.stepIndex)
+        : undefined;
+    if (stepIndex === undefined) {
+      return null;
+    }
+
+    const flowId =
+      properties && typeof properties === 'object'
+        ? toStableKey(this.readPropertyAsString(properties.onboardingFlowId)) ?? 'unknown_flow'
+        : 'unknown_flow';
+    const flowVersion =
+      properties && typeof properties === 'object'
+        ? toStableKey(this.readPropertyAsString(properties.onboardingFlowVersion)) ?? 'unknown_version'
+        : 'unknown_version';
+    return `index:${flowId}|${flowVersion}|${stepIndex}`;
+  }
+
+  private extractOnboardingStepKeyFromScreenName(name: string): string | null {
+    const normalizedName = toStableKey(name);
+    if (!normalizedName) {
+      return null;
+    }
+
+    const onboardingPrefixMatch = normalizedName.match(/^onboarding[_:\-.]+(.+)$/);
+    if (!onboardingPrefixMatch) {
+      return null;
+    }
+
+    const stepKey = toStableKey(onboardingPrefixMatch[1]);
+    return stepKey ?? null;
+  }
+
+  private isOnboardingScreenName(name: string | undefined): boolean {
+    if (!name) {
+      return false;
+    }
+    return (
+      name === 'onboarding' ||
+      name.startsWith('onboarding_') ||
+      name.startsWith('onboarding:') ||
+      name.startsWith('onboarding-') ||
+      name.startsWith('onboarding.')
+    );
   }
 
   private getScreenViewDedupeKey(

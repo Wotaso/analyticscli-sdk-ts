@@ -338,7 +338,14 @@ export type AnalyticsClientOptions = {
    */
   dedupeScreenViewsPerSession?: boolean | null;
   /**
-   * Time window used by `dedupeScreenViewsPerSession` in milliseconds.
+   * Drops overlapping onboarding `screen:*` + `onboarding:step_view` duplicates for the same step
+   * inside one session.
+   * This helps when host apps track both route-level screen views and dedicated onboarding step views.
+   * Defaults to `true`. Set to `false` to keep both events.
+   */
+  dedupeOnboardingScreenStepViewOverlapsPerSession?: boolean | null;
+  /**
+   * Time window used by `dedupeScreenViewsPerSession` and onboarding screen/step overlap dedupe.
    * A duplicate screen event emitted again within this window is dropped.
    * Defaults to `1200`.
    */

@@ -114,6 +114,7 @@ const analytics = init({
   initialFullTrackingConsentGranted: false,
   dedupeOnboardingStepViewsPerSession: true,
   dedupeScreenViewsPerSession: true,
+  dedupeOnboardingScreenStepViewOverlapsPerSession: true,
   screenViewDedupeWindowMs: 1200,
 });
 ```
@@ -129,7 +130,10 @@ events for the same step in the same session.
 `dedupeScreenViewsPerSession` dedupes immediate duplicate `screen(...)` calls
 for the same screen key in the same session (for example, when focus and mount
 hooks both fire for one transition). `screenViewDedupeWindowMs` controls this
-window (default `1200` ms).
+window (default `1200` ms) and also applies to onboarding screen/step overlap dedupe.
+`dedupeOnboardingScreenStepViewOverlapsPerSession` drops immediate overlaps
+between onboarding route-level `screen:*` events and `onboarding:step_view`
+for the same step (default `true`).
 Neither setting dedupes paywall or purchase events.
 
 For paywall funnels with stable `source` + `paywallId`, create one tracker per

@@ -1481,6 +1481,112 @@ test('screenViewDedupeWindowMs only drops screen duplicates inside the configure
   });
 });
 
+test('dedupeOnboardingScreenStepViewOverlapsPerSession drops queued onboarding screen when matching onboarding:step_view follows', async () => {
+  await withMockedGlobals(async (calls) => {
+    const client = init({
+      apiKey: 'pi_live_test',
+      endpoint: 'https://collector.analyticscli.com',
+      batchSize: 20,
+      flushIntervalMs: 60_000,
+      maxRetries: 0,
+    });
+
+    try {
+      client.screen('onboarding_community-designs', {
+        screen_class: '/onboarding/community-designs',
+      });
+      client.trackOnboardingEvent(ONBOARDING_EVENTS.STEP_VIEW, {
+        onboardingFlowId: 'onboarding_main',
+        onboardingFlowVersion: '1',
+        stepKey: 'community-designs',
+      });
+
+      await client.flush();
+
+      assert.equal(calls.length, 1);
+      const payload = JSON.parse(String(calls[0]?.init?.body)) as {
+        events: Array<{ eventName: string }>;
+      };
+
+      assert.deepEqual(eventNamesWithoutSessionStart(payload.events), [ONBOARDING_EVENTS.STEP_VIEW]);
+    } finally {
+      client.shutdown();
+    }
+  });
+});
+
+test('dedupeOnboardingScreenStepViewOverlapsPerSession drops onboarding screen when onboarding:step_view was already tracked', async () => {
+  await withMockedGlobals(async (calls) => {
+    const client = init({
+      apiKey: 'pi_live_test',
+      endpoint: 'https://collector.analyticscli.com',
+      batchSize: 20,
+      flushIntervalMs: 60_000,
+      maxRetries: 0,
+    });
+
+    try {
+      client.trackOnboardingEvent(ONBOARDING_EVENTS.STEP_VIEW, {
+        onboardingFlowId: 'onboarding_main',
+        onboardingFlowVersion: '1',
+        stepKey: 'community-designs',
+      });
+      client.screen('onboarding_community-designs', {
+        screen_class: '/onboarding/community-designs',
+      });
+
+      await client.flush();
+
+      assert.equal(calls.length, 1);
+      const payload = JSON.parse(String(calls[0]?.init?.body)) as {
+        events: Array<{ eventName: string }>;
+      };
+
+      assert.deepEqual(eventNamesWithoutSessionStart(payload.events), [ONBOARDING_EVENTS.STEP_VIEW]);
+    } finally {
+      client.shutdown();
+    }
+  });
+});
+
+test('dedupeOnboardingScreenStepViewOverlapsPerSession=false keeps both onboarding screen and onboarding:step_view', async () => {
+  await withMockedGlobals(async (calls) => {
+    const client = init({
+      apiKey: 'pi_live_test',
+      endpoint: 'https://collector.analyticscli.com',
+      batchSize: 20,
+      flushIntervalMs: 60_000,
+      maxRetries: 0,
+      dedupeOnboardingScreenStepViewOverlapsPerSession: false,
+    });
+
+    try {
+      client.screen('onboarding_community-designs', {
+        screen_class: '/onboarding/community-designs',
+      });
+      client.trackOnboardingEvent(ONBOARDING_EVENTS.STEP_VIEW, {
+        onboardingFlowId: 'onboarding_main',
+        onboardingFlowVersion: '1',
+        stepKey: 'community-designs',
+      });
+
+      await client.flush();
+
+      assert.equal(calls.length, 1);
+      const payload = JSON.parse(String(calls[0]?.init?.body)) as {
+        events: Array<{ eventName: string }>;
+      };
+
+      assert.deepEqual(eventNamesWithoutSessionStart(payload.events), [
+        'screen:onboarding_community-designs',
+        ONBOARDING_EVENTS.STEP_VIEW,
+      ]);
+    } finally {
+      client.shutdown();
+    }
+  });
+});
+
 test('dedupeOnboardingStepViewsPerSession resets across sessions', async () => {
   const storage = createMemoryStorage();
   const calls: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];
