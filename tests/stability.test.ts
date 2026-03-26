@@ -42,15 +42,17 @@ test('public SDK API remains no-throw under transient network failures', async (
       client.trackPaywallEvent(PAYWALL_EVENTS.SHOWN, {
         source: 'onboarding',
         paywallId: 'default',
+        offeringId: 'rc_main',
       }),
     );
     assert.doesNotThrow(() => {
       const paywall = client.createPaywallTracker({
         source: 'onboarding',
         paywallId: 'default',
+        offeringId: 'rc_main',
       });
       paywall.shown();
-      paywall.purchaseSuccess({ packageId: 'annual' });
+      paywall.purchaseSuccess();
     });
     assert.doesNotThrow(() =>
       client.trackOnboardingSurveyResponse({

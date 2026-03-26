@@ -49,9 +49,9 @@ export type OnboardingEventProperties = EventProperties & {
 
 export type PaywallEventProperties = EventProperties & {
   source: string;
+  offeringId?: string;
   fromScreen?: string;
   paywallId?: string;
-  offering?: string;
   paywallEntryId?: string;
   packageId?: string;
   price?: number;

@@ -607,28 +607,52 @@ export class AnalyticsClient {
 
   /**
    * Creates a scoped paywall tracker that applies shared paywall defaults to every journey event.
-   * Useful when a flow has a stable `source`, `paywallId`, `offering`, or experiment metadata.
+   * Useful when a flow has a stable `source`, `paywallId`, `offeringId`, or experiment metadata.
    * Reuse the returned tracker for that flow context; creating a new tracker per event resets
    * paywall entry correlation.
    */
   public createPaywallTracker(defaults: PaywallTrackerDefaults): PaywallTracker {
-    const { source: rawDefaultSource, ...defaultProperties } = defaults;
+    const {
+      source: rawDefaultSource,
+      offeringId: rawDefaultOfferingId,
+      ...defaultProperties
+    } = defaults;
+    delete (defaultProperties as EventProperties & { offering?: unknown }).offering;
     const defaultSource = this.readRequiredStringOption(rawDefaultSource);
+    const defaultOfferingId = this.readRequiredStringOption(rawDefaultOfferingId);
     let currentPaywallEntryId: string | undefined;
+    let currentOfferingId: string | undefined = defaultOfferingId || undefined;
     if (!defaultSource) {
       this.log('createPaywallTracker() called without a valid default `source`');
+    }
+    if (!defaultOfferingId) {
+      this.log(
+        'createPaywallTracker() called without default `offeringId`; set it when available for better paywall analytics',
+      );
     }
 
     const mergeProperties = (properties?: PaywallTrackerProperties): PaywallEventProperties => {
       const mergedSource = this.readRequiredStringOption(
         this.readPropertyAsString(properties?.source) ?? defaultSource,
       );
+      const mergedOfferingId = this.readRequiredStringOption(
+        this.readPropertyAsString(properties?.offeringId) ?? currentOfferingId ?? defaultOfferingId,
+      );
 
-      return {
+      const merged: PaywallEventProperties = {
         ...defaultProperties,
         ...(properties ?? {}),
         source: mergedSource,
       };
+      delete (merged as EventProperties & { offering?: unknown }).offering;
+
+      if (mergedOfferingId) {
+        merged.offeringId = mergedOfferingId;
+      } else {
+        delete merged.offeringId;
+      }
+
+      return merged;
     };
 
     const track = (eventName: PaywallJourneyEventName, properties?: PaywallTrackerProperties) => {
@@ -637,14 +661,14 @@ export class AnalyticsClient {
 
       if (eventName === PAYWALL_EVENTS.SHOWN) {
         currentPaywallEntryId = randomId();
+        currentOfferingId = mergedProperties.offeringId;
         mergedProperties.paywallEntryId = currentPaywallEntryId;
       } else {
         if (currentPaywallEntryId) {
           mergedProperties.paywallEntryId = currentPaywallEntryId;
         }
-
-        if (properties?.offering === undefined) {
-          delete mergedProperties.offering;
+        if (properties?.offeringId === undefined && currentOfferingId) {
+          mergedProperties.offeringId = currentOfferingId;
         }
       }
 
@@ -682,14 +706,25 @@ export class AnalyticsClient {
     properties: PaywallEventProperties,
     options: { allowPaywallEntryId: boolean },
   ): void {
-    if (typeof properties?.source !== 'string' || properties.source.trim().length === 0) {
+    const normalizedSource = this.readRequiredStringOption(this.readPropertyAsString(properties?.source));
+    if (!normalizedSource) {
       this.log('Dropping paywall event without required `source` property', { eventName });
       return;
     }
 
     const normalizedProperties = {
       ...properties,
+      source: normalizedSource,
     };
+    delete (normalizedProperties as EventProperties & { offering?: unknown }).offering;
+    const normalizedOfferingId = this.readRequiredStringOption(
+      this.readPropertyAsString(properties?.offeringId),
+    );
+    if (normalizedOfferingId) {
+      normalizedProperties.offeringId = normalizedOfferingId;
+    } else {
+      delete normalizedProperties.offeringId;
+    }
 
     if (!options.allowPaywallEntryId && normalizedProperties.paywallEntryId !== undefined) {
       this.log(

@@ -629,16 +629,15 @@ test('typed onboarding/paywall wrappers emit canonical event names', async () =>
       client.trackPaywallEvent(PAYWALL_EVENTS.SHOWN, {
         source: 'onboarding',
         paywallId: 'default_paywall',
-        offering: 'rc_main',
+        offeringId: 'rc_main',
         paywallEntryId: 'manual_entry',
         fromScreen: 'onboarding_paywall',
       });
       client.trackPaywallEvent(PURCHASE_EVENTS.SUCCESS, {
         source: 'onboarding',
         paywallId: 'default_paywall',
-        offering: 'rc_main',
+        offeringId: 'rc_main',
         paywallEntryId: 'manual_entry',
-        packageId: 'annual',
       });
 
       await client.flush();
@@ -662,8 +661,8 @@ test('typed onboarding/paywall wrappers emit canonical event names', async () =>
         [2, 3, 4],
       );
       assert.equal(trackedEvents[0]?.properties?.onboardingExperimentId, 'exp_onboarding_v4');
-      assert.equal(trackedEvents[1]?.properties?.offering, 'rc_main');
-      assert.equal(trackedEvents[2]?.properties?.offering, 'rc_main');
+      assert.equal(trackedEvents[1]?.properties?.offeringId, 'rc_main');
+      assert.equal(trackedEvents[2]?.properties?.offeringId, 'rc_main');
       assert.equal(trackedEvents[1]?.properties?.paywallEntryId, undefined);
       assert.equal(trackedEvents[2]?.properties?.paywallEntryId, undefined);
     } finally {
@@ -686,14 +685,14 @@ test('createPaywallTracker() applies shared defaults and supports all journey he
       const paywall = client.createPaywallTracker({
         source: 'onboarding',
         paywallId: 'default_paywall',
-        offering: 'rc_main',
+        offeringId: 'rc_main',
         appVersion: '2.1.0',
         experimentVariant: 'B',
       });
 
       paywall.shown({ fromScreen: 'onboarding_offer' });
-      paywall.purchaseStarted({ packageId: 'annual' });
-      paywall.purchaseSuccess({ packageId: 'annual' });
+      paywall.purchaseStarted();
+      paywall.purchaseSuccess();
       paywall.track(PAYWALL_EVENTS.SKIP, { source: 'settings' });
 
       await client.flush();
@@ -717,7 +716,7 @@ test('createPaywallTracker() applies shared defaults and supports all journey he
       const first = trackedEvents[0]?.properties ?? {};
       assert.equal(first.source, 'onboarding');
       assert.equal(first.paywallId, 'default_paywall');
-      assert.equal(first.offering, 'rc_main');
+      assert.equal(first.offeringId, 'rc_main');
       assert.equal(first.appVersion, '2.1.0');
       assert.equal(first.experimentVariant, 'B');
       assert.equal(first.fromScreen, 'onboarding_offer');
@@ -729,21 +728,21 @@ test('createPaywallTracker() applies shared defaults and supports all journey he
       const third = trackedEvents[2]?.properties ?? {};
       assert.equal(second.paywallEntryId, firstEntryId);
       assert.equal(third.paywallEntryId, firstEntryId);
-      assert.equal(second.offering, undefined);
-      assert.equal(third.offering, undefined);
+      assert.equal(second.offeringId, 'rc_main');
+      assert.equal(third.offeringId, 'rc_main');
 
       const override = trackedEvents[3]?.properties ?? {};
       assert.equal(override.source, 'settings');
       assert.equal(override.paywallId, 'default_paywall');
       assert.equal(override.paywallEntryId, firstEntryId);
-      assert.equal(override.offering, undefined);
+      assert.equal(override.offeringId, 'rc_main');
     } finally {
       client.shutdown();
     }
   });
 });
 
-test('createPaywallTracker() rotates paywallEntryId per shown event and keeps offering on shown only', async () => {
+test('createPaywallTracker() rotates paywallEntryId per shown event and carries offeringId across events', async () => {
   await withMockedGlobals(async (calls) => {
     const client = init({
       apiKey: 'pi_live_test',
@@ -757,13 +756,13 @@ test('createPaywallTracker() rotates paywallEntryId per shown event and keeps of
       const paywall = client.createPaywallTracker({
         source: 'onboarding',
         paywallId: 'default_paywall',
-        offering: 'rc_main',
+        offeringId: 'rc_main',
       });
 
       paywall.shown();
-      paywall.purchaseStarted({ packageId: 'annual' });
-      paywall.shown({ offering: 'rc_alt' });
-      paywall.purchaseCancel({ packageId: 'annual' });
+      paywall.purchaseStarted();
+      paywall.shown({ offeringId: 'rc_alt' });
+      paywall.purchaseCancel();
 
       await client.flush();
 
@@ -788,10 +787,10 @@ test('createPaywallTracker() rotates paywallEntryId per shown event and keeps of
       const secondShown = trackedEvents[2]?.properties ?? {};
       const secondPurchase = trackedEvents[3]?.properties ?? {};
 
-      assert.equal(firstShown.offering, 'rc_main');
-      assert.equal(secondShown.offering, 'rc_alt');
-      assert.equal(firstPurchase.offering, undefined);
-      assert.equal(secondPurchase.offering, undefined);
+      assert.equal(firstShown.offeringId, 'rc_main');
+      assert.equal(secondShown.offeringId, 'rc_alt');
+      assert.equal(firstPurchase.offeringId, 'rc_main');
+      assert.equal(secondPurchase.offeringId, 'rc_alt');
 
       const firstEntryId = String(firstShown.paywallEntryId ?? '');
       const secondEntryId = String(secondShown.paywallEntryId ?? '');
@@ -1261,10 +1260,12 @@ test('dedupeOnboardingStepViewsPerSession is enabled by default and drops repeat
       client.trackPaywallEvent(PAYWALL_EVENTS.SHOWN, {
         source: 'onboarding',
         paywallId: 'default_paywall',
+        offeringId: 'rc_main',
       });
       client.trackPaywallEvent(PAYWALL_EVENTS.SHOWN, {
         source: 'onboarding',
         paywallId: 'default_paywall',
+        offeringId: 'rc_main',
       });
 
       await client.flush();
@@ -1321,6 +1322,7 @@ test('dedupeOnboardingStepViewsPerSession=false keeps repeated onboarding:step_v
       client.trackPaywallEvent(PAYWALL_EVENTS.SHOWN, {
         source: 'onboarding',
         paywallId: 'default_paywall',
+        offeringId: 'rc_main',
       });
 
       await client.flush();
@@ -1818,6 +1820,7 @@ test('trackPaywallEvent() drops events missing required source property', async 
 
     try {
       client.trackPaywallEvent(PAYWALL_EVENTS.SHOWN, {
+        offeringId: 'rc_main',
         paywallId: 'default_paywall',
       } as any);
 
@@ -1828,6 +1831,35 @@ test('trackPaywallEvent() drops events missing required source property', async 
         events: Array<{ eventName: string }>;
       };
       assert.deepEqual(eventNamesWithoutSessionStart(payload.events), []);
+    } finally {
+      client.shutdown();
+    }
+  });
+});
+
+test('trackPaywallEvent() allows events without offeringId', async () => {
+  await withMockedGlobals(async (calls) => {
+    const client = init({
+      apiKey: 'pi_live_test',
+      endpoint: 'https://collector.analyticscli.com',
+      batchSize: 20,
+      flushIntervalMs: 60_000,
+      maxRetries: 0,
+    });
+
+    try {
+      client.trackPaywallEvent(PAYWALL_EVENTS.SHOWN, {
+        source: 'onboarding',
+        paywallId: 'default_paywall',
+      } as any);
+
+      await client.flush();
+
+      assert.equal(calls.length, 1);
+      const payload = JSON.parse(String(calls[0]?.init?.body)) as {
+        events: Array<{ eventName: string }>;
+      };
+      assert.deepEqual(eventNamesWithoutSessionStart(payload.events), [PAYWALL_EVENTS.SHOWN]);
     } finally {
       client.shutdown();
     }
@@ -1847,9 +1879,9 @@ test('trackPaywallEvent() ignores paywallEntryId in direct calls', async () => {
     try {
       client.trackPaywallEvent(PURCHASE_EVENTS.SUCCESS, {
         source: 'onboarding',
+        offeringId: 'rc_main',
         paywallId: 'default_paywall',
         paywallEntryId: 'manual_entry',
-        packageId: 'annual',
       });
 
       await client.flush();

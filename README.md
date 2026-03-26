@@ -145,15 +145,15 @@ flow context and reuse it:
 const paywall = analytics.createPaywallTracker({
   source: 'onboarding',
   paywallId: 'default_paywall',
-  offering: 'rc_main', // RevenueCat example
+  offeringId: 'rc_main', // RevenueCat example
 });
 
 paywall.shown({ fromScreen: 'onboarding_offer' });
-paywall.purchaseSuccess({ packageId: 'annual' });
+paywall.purchaseSuccess();
 ```
 
 Do not create a new `createPaywallTracker(...)` instance for every paywall callback/event.
-If your paywall provider exposes it, pass `offering` in tracker defaults
+Strongly prefer passing `offeringId` in tracker defaults
 (RevenueCat offering id, Adapty paywall/placement id, Superwall placement/paywall id).
 
 For onboarding surveys, avoid repeating unchanged flow metadata at every callsite.
@@ -186,7 +186,10 @@ For RevenueCat correlation, keep identity and paywall purchase metadata aligned:
 ```ts
 analytics.setUser(appUserId); // same id passed to Purchases.logIn(appUserId)
 // in purchase callbacks, prefer provider-native ids
-paywall.purchaseStarted({ packageId: packageBeingPurchased.identifier });
+paywall.purchaseStarted({
+  offeringId: 'rc_main',
+  packageId: packageBeingPurchased.identifier, // optional, still useful for plan-level breakdowns
+});
 // on sign-out
 analytics.clearUser();
 ```
