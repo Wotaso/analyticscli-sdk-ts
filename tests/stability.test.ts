@@ -36,7 +36,6 @@ test('public SDK API remains no-throw under transient network failures', async (
     assert.doesNotThrow(() => client.track('app_open'));
     assert.doesNotThrow(() => client.screen('home'));
     assert.doesNotThrow(() => client.page('settings'));
-    assert.doesNotThrow(() => client.feedback('great', 5));
     assert.doesNotThrow(() => client.trackOnboardingEvent(ONBOARDING_EVENTS.START));
     assert.doesNotThrow(() =>
       client.trackPaywallEvent(PAYWALL_EVENTS.SHOWN, {

@@ -804,39 +804,6 @@ export class AnalyticsClient {
   }
 
   /**
-   * Sends a feedback event.
-   */
-  public feedback(message: string, rating?: number, properties?: EventProperties): void {
-    if (!this.consentGranted) {
-      return;
-    }
-
-    if (this.shouldDeferEventsUntilHydrated()) {
-      const deferredProperties = this.cloneProperties(properties);
-      this.deferEventUntilHydrated(() => {
-        this.feedback(message, rating, deferredProperties);
-      });
-      return;
-    }
-
-    const sessionId = this.getSessionId();
-    this.enqueue({
-      eventId: randomId(),
-      eventName: 'feedback_submitted',
-      ts: nowIso(),
-      sessionId,
-      anonId: this.anonId,
-      userId: this.getEventUserId(),
-      properties: this.withRuntimeMetadata({ message, rating, ...properties }, sessionId),
-      platform: this.platform,
-      projectSurface: this.projectSurface,
-      appVersion: this.appVersion,
-      ...this.withEventContext(),
-      type: 'feedback',
-    });
-  }
-
-  /**
    * Flushes current event queue to the ingest endpoint.
    */
   public async flush(): Promise<void> {

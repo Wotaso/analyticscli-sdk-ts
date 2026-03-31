@@ -18,7 +18,7 @@ const UUID_REGEX =
 const ISO_DATETIME_WITH_OFFSET_REGEX =
   /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/;
 
-const TYPE_VALUES = new Set(['track', 'screen', 'identify', 'feedback']);
+const TYPE_VALUES = new Set(['track', 'screen', 'identify']);
 
 const isRecord = (value: unknown): value is Record<string, unknown> => {
   return typeof value === 'object' && value !== null && !Array.isArray(value);

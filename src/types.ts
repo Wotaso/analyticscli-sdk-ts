@@ -160,7 +160,7 @@ export type QueuedEvent = {
   networkType?: string;
   carrier?: string;
   installSource?: string;
-  type: 'track' | 'screen' | 'identify' | 'feedback';
+  type: 'track' | 'screen' | 'identify';
 };
 
 export type AnalyticsConsentState = 'granted' | 'denied' | 'unknown';

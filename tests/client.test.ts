@@ -389,7 +389,6 @@ test('init() without credentials is a safe no-op client', async () => {
       try {
         client.track('onboarding:start');
         client.screen('welcome');
-        client.feedback('hi');
         client.identify('user-1');
         client.optIn();
         await client.flush();
@@ -552,7 +551,7 @@ test('consent changes do not persist across client instances in strict-only mode
   });
 });
 
-test('screen() and feedback() use canonical event names', async () => {
+test('screen() uses canonical event names', async () => {
   await withMockedGlobals(async (calls) => {
     const client = init({
       apiKey: 'pi_live_test',
@@ -564,7 +563,6 @@ test('screen() and feedback() use canonical event names', async () => {
 
     try {
       client.screen('welcome');
-      client.feedback('great app', 5);
       await client.flush();
 
       assert.equal(calls.length, 1);
@@ -573,7 +571,7 @@ test('screen() and feedback() use canonical event names', async () => {
       };
 
       const eventNames = eventNamesWithoutSessionStart(payload.events);
-      assert.deepEqual(eventNames, ['screen:welcome', 'feedback_submitted']);
+      assert.deepEqual(eventNames, ['screen:welcome']);
     } finally {
       client.shutdown();
     }
