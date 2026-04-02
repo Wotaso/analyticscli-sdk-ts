@@ -181,6 +181,31 @@ Lean onboarding event strategy (recommended):
   (for example submit/continue confirmation or async success).
 - For survey steps, `onboarding:step_view` + `onboarding:survey_response` is usually enough.
 
+Tenant feedback collection is also supported:
+
+```ts
+const analytics = init({
+  apiKey: process.env.EXPO_PUBLIC_ANALYTICSCLI_PUBLISHABLE_API_KEY,
+  feedback: {
+    serviceUrl: 'https://api.example.com',
+    appId: 'my-ios-app',
+    surface: 'ios_app',
+  },
+});
+
+await analytics.submitFeedback({
+  message: 'The restore screen is unclear.',
+  category: 'ux',
+  locationId: 'settings/restore',
+});
+```
+
+Best practice:
+- always send a stable `locationId`
+- point `feedback.serviceUrl` at a tenant-owned backend/proxy or explicitly app-scoped feedback endpoint
+- do not put privileged feedback secrets into mobile client binaries
+- the SDK tracks lightweight `feedback:*` analytics events without including the raw message text
+
 For RevenueCat correlation, keep identity and paywall purchase metadata aligned:
 
 ```ts

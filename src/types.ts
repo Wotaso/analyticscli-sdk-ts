@@ -8,6 +8,8 @@ import type {
  * Arbitrary key/value payload sent with an event.
  */
 export type EventProperties = Record<string, unknown>;
+export type FeedbackMetadataValue = string | number | boolean | null;
+export type FeedbackMetadata = Record<string, FeedbackMetadataValue>;
 
 export type StorageGetItemCallback = (error?: Error | null, value?: string | null) => void;
 export type StorageMutationCallback = (error?: Error | null) => void;
@@ -163,6 +165,73 @@ export type QueuedEvent = {
   type: 'track' | 'screen' | 'identify';
 };
 
+export type FeedbackClientOptions = {
+  /**
+   * Preferred tenant-owned feedback endpoint or external feedback service base URL.
+   * Best practice for mobile apps: point this at your own backend/proxy instead of shipping privileged secrets in-app.
+   */
+  serviceUrl?: string | null;
+  /**
+   * Optional API key/header value for external feedback services.
+   * Avoid setting this in mobile client code unless the key is app-scoped and intended for public use.
+   */
+  apiKey?: string | null;
+  /**
+   * Header used when `apiKey` is set. Defaults to `x-feedback-key`.
+   */
+  apiKeyHeader?: string | null;
+  /**
+   * Feedback application identifier expected by the target feedback endpoint.
+   */
+  appId?: string | null;
+  /**
+   * Default surface label, for example `ios_app`, `android_app`, or `web_app`.
+   */
+  surface?: string | null;
+  /**
+   * Default location identifier for shared call sites.
+   */
+  locationId?: string | null;
+  /**
+   * Optional default user id for the feedback endpoint.
+   * If omitted, the SDK uses the current identified user id or current anon id.
+   */
+  userId?: string | null;
+  /**
+   * Additional default metadata sent with every feedback submission.
+   */
+  metadata?: FeedbackMetadata | null;
+  /**
+   * Optional timeout for network submission.
+   */
+  timeoutMs?: number | null;
+  /**
+   * Track a lightweight analytics event (`feedback:submitted` / `feedback:submission_failed`) after submission attempts.
+   * Defaults to `true`.
+   */
+  trackEvents?: boolean | null;
+};
+
+export type FeedbackSubmissionInput = {
+  message: string;
+  locationId?: string;
+  category?: 'bug' | 'feature' | 'ux' | 'performance' | 'other';
+  rating?: number;
+  surface?: string;
+  context?: string;
+  userId?: string;
+  metadata?: FeedbackMetadata;
+};
+
+export type FeedbackSubmissionResult = {
+  ok: boolean;
+  delivery: 'external_feedback_service' | 'analytics_only';
+  serviceUrl?: string;
+  appId?: string;
+  locationId: string;
+  surface: string;
+};
+
 export type AnalyticsConsentState = 'granted' | 'denied' | 'unknown';
 export type IdentityTrackingMode = 'strict' | 'consent_gated' | 'always_on';
 
@@ -316,6 +385,11 @@ export type AnalyticsClientOptions = {
    * Optional custom persistence adapter used when identity persistence is active.
    */
   storage?: AnalyticsStorageAdapter | null;
+  /**
+   * Optional tenant feedback transport configuration.
+   * Recommended for mobile apps only when routed through a tenant-owned backend/proxy.
+   */
+  feedback?: FeedbackClientOptions | null;
   /**
    * Optional explicit anonymous device id when identity persistence is active.
    */

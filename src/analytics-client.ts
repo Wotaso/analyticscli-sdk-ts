@@ -39,6 +39,10 @@ import { sanitizeSurveyResponseInput } from './survey.js';
 import type {
   AnalyticsConsentState,
   AnalyticsClientOptions,
+  FeedbackClientOptions,
+  FeedbackMetadata,
+  FeedbackSubmissionInput,
+  FeedbackSubmissionResult,
   AnalyticsIngestError,
   AnalyticsIngestErrorHandler,
   AnalyticsStorageAdapter,
@@ -138,6 +142,7 @@ export class AnalyticsClient {
   private readonly projectSurface: string | undefined;
   private readonly appVersion: string | undefined;
   private readonly identityTrackingMode: IdentityTrackingMode;
+  private readonly feedbackConfig: FeedbackClientOptions | null;
   private context: EventContext;
   private readonly configuredStorage: AnalyticsStorageAdapter | null;
   private storage: AnalyticsStorageAdapter | null;
@@ -199,6 +204,7 @@ export class AnalyticsClient {
     this.appVersion =
       this.readRequiredStringOption(normalizedOptions.appVersion) || detectDefaultAppVersion();
     this.identityTrackingMode = this.resolveIdentityTrackingModeOption(normalizedOptions);
+    this.feedbackConfig = this.normalizeFeedbackConfig(normalizedOptions.feedback);
     const initialContext = { ...(normalizedOptions.context ?? {}) };
     const hasExplicitOsName = this.readRequiredStringOption(initialContext.osName).length > 0;
     this.context = {
@@ -801,6 +807,146 @@ export class AnalyticsClient {
    */
   public page(name: string, properties?: EventProperties): void {
     this.screen(name, properties);
+  }
+
+  /**
+   * Sends tenant feedback to the configured feedback endpoint and optionally tracks a lightweight analytics event.
+   * The raw feedback message is never added to analytics events.
+   */
+  public async submitFeedback(input: FeedbackSubmissionInput): Promise<FeedbackSubmissionResult> {
+    const message = this.readRequiredStringOption(input?.message);
+    if (!message) {
+      throw new Error('Feedback message must not be empty.');
+    }
+
+    const config = this.feedbackConfig;
+    const locationId =
+      this.readRequiredStringOption(input.locationId) ||
+      this.readRequiredStringOption(config?.locationId) ||
+      'feedback/unknown';
+    const surface =
+      this.normalizeProjectSurfaceOption(input.surface) ||
+      this.normalizeProjectSurfaceOption(config?.surface) ||
+      this.projectSurface ||
+      this.platform ||
+      'app';
+    const category = this.readRequiredStringOption(input.category || 'other').toLowerCase() || 'other';
+    const context = this.readRequiredStringOption(input.context);
+    const metadata = this.mergeFeedbackMetadata(config?.metadata, input.metadata, {
+      category,
+      ...(context ? { context } : {}),
+    });
+
+    let rating: number | undefined;
+    if (input.rating !== undefined) {
+      const parsedRating = Number(input.rating);
+      if (!Number.isInteger(parsedRating) || parsedRating < 1 || parsedRating > 5) {
+        throw new Error('Feedback rating must be an integer between 1 and 5.');
+      }
+      rating = parsedRating;
+    }
+
+    const shouldTrackEvents = config?.trackEvents !== false;
+    const userId =
+      this.readRequiredStringOption(input.userId) ||
+      this.readRequiredStringOption(config?.userId) ||
+      this.getEventUserId() ||
+      this.anonId;
+
+    if (!config?.serviceUrl || !config?.appId) {
+      if (shouldTrackEvents) {
+        this.track('feedback:submitted', {
+          category,
+          ...(rating !== undefined ? { rating } : {}),
+          locationId,
+          feedbackSurface: surface,
+          feedbackDelivery: 'analytics_only',
+        });
+      }
+
+      return {
+        ok: true,
+        delivery: 'analytics_only',
+        locationId,
+        surface,
+      };
+    }
+
+    const controller = typeof AbortController === 'function' ? new AbortController() : null;
+    const timeoutMs = config.timeoutMs ?? 10_000;
+    const timer =
+      controller && Number.isFinite(timeoutMs) && timeoutMs > 0
+        ? setTimeout(() => controller.abort(), timeoutMs)
+        : null;
+
+    try {
+      const headers: Record<string, string> = {
+        'content-type': 'application/json',
+      };
+      const apiKey = this.readRequiredStringOption(config.apiKey);
+      if (apiKey) {
+        headers[this.readRequiredStringOption(config.apiKeyHeader) || 'x-feedback-key'] = apiKey;
+      }
+
+      const response = await fetch(`${config.serviceUrl.replace(/\/$/, '')}/v1/feedback`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          appId: config.appId,
+          userId,
+          feedback: message,
+          location: locationId,
+          appSurface: surface,
+          metadata: {
+            ...metadata,
+            ...(rating !== undefined ? { rating } : {}),
+          },
+        }),
+        ...(controller ? { signal: controller.signal } : {}),
+      });
+
+      if (!response.ok) {
+        const errorPayload = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+        const errorMessage =
+          typeof errorPayload.error === 'string'
+            ? errorPayload.error
+            : `Feedback submission failed with status ${response.status}`;
+        throw new Error(errorMessage);
+      }
+
+      if (shouldTrackEvents) {
+        this.track('feedback:submitted', {
+          category,
+          ...(rating !== undefined ? { rating } : {}),
+          locationId,
+          feedbackSurface: surface,
+          feedbackDelivery: 'external_feedback_service',
+        });
+      }
+
+      return {
+        ok: true,
+        delivery: 'external_feedback_service',
+        serviceUrl: config.serviceUrl,
+        appId: config.appId,
+        locationId,
+        surface,
+      };
+    } catch (error) {
+      if (shouldTrackEvents) {
+        this.track('feedback:submission_failed', {
+          category,
+          ...(rating !== undefined ? { rating } : {}),
+          locationId,
+          feedbackSurface: surface,
+        });
+      }
+      throw error;
+    } finally {
+      if (timer) {
+        clearTimeout(timer);
+      }
+    }
   }
 
   /**
@@ -1847,6 +1993,53 @@ export class AnalyticsClient {
       region: this.context.region,
       city: this.context.city,
     };
+  }
+
+  private normalizeFeedbackConfig(value: unknown): FeedbackClientOptions | null {
+    if (typeof value !== 'object' || value === null) {
+      return null;
+    }
+
+    const input = value as FeedbackClientOptions;
+    return {
+      serviceUrl: this.readRequiredStringOption(input.serviceUrl) || undefined,
+      apiKey: this.readRequiredStringOption(input.apiKey) || undefined,
+      apiKeyHeader: this.readRequiredStringOption(input.apiKeyHeader) || undefined,
+      appId: this.readRequiredStringOption(input.appId) || undefined,
+      surface: this.normalizeProjectSurfaceOption(input.surface),
+      locationId: this.readRequiredStringOption(input.locationId) || undefined,
+      userId: this.readRequiredStringOption(input.userId) || undefined,
+      metadata: this.mergeFeedbackMetadata(input.metadata),
+      timeoutMs:
+        typeof input.timeoutMs === 'number' && Number.isFinite(input.timeoutMs) && input.timeoutMs > 0
+          ? input.timeoutMs
+          : undefined,
+      trackEvents: input.trackEvents !== false,
+    };
+  }
+
+  private mergeFeedbackMetadata(...sources: Array<FeedbackMetadata | null | undefined>): FeedbackMetadata {
+    const result: FeedbackMetadata = {};
+    for (const source of sources) {
+      if (!source || typeof source !== 'object') {
+        continue;
+      }
+      for (const [key, value] of Object.entries(source)) {
+        const normalizedKey = this.readRequiredStringOption(key).slice(0, 64);
+        if (!normalizedKey) {
+          continue;
+        }
+        if (
+          value === null ||
+          typeof value === 'string' ||
+          typeof value === 'number' ||
+          typeof value === 'boolean'
+        ) {
+          result[normalizedKey] = value;
+        }
+      }
+    }
+    return result;
   }
 
   private normalizeOptions(options: unknown): Partial<AnalyticsClientOptions> {

@@ -22,6 +22,11 @@ export type {
 export type {
   AnalyticsClientOptions,
   AnalyticsConsentState,
+  FeedbackClientOptions,
+  FeedbackMetadata,
+  FeedbackMetadataValue,
+  FeedbackSubmissionInput,
+  FeedbackSubmissionResult,
   AnalyticsIngestError,
   AnalyticsIngestErrorHandler,
   AnalyticsStorageAdapter,
