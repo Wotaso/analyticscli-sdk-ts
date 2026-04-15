@@ -2168,7 +2168,7 @@ test('trackOnboardingSurveyResponse() emits anonymized survey response payloads'
   });
 });
 
-test('submitFeedback() sends feedback to configured endpoint and tracks locationId without raw message', async () => {
+test('submitFeedback() sends feedback with originName to configured endpoint and tracks metadata without raw message', async () => {
   await withMockedGlobals(async (calls) => {
     const client = init({
       apiKey: 'pi_live_test',
@@ -2190,9 +2190,11 @@ test('submitFeedback() sends feedback to configured endpoint and tracks location
         category: 'feature',
         rating: 4,
         locationId: 'onboarding/paywall',
+        originName: 'onboarding upsell gate',
       });
 
       assert.equal(result.delivery, 'external_feedback_service');
+      assert.equal(result.originName, 'onboarding upsell gate');
       assert.equal(calls.length, 1);
       assert.equal(String(calls[0]?.input), 'https://feedback.example.com/v1/feedback');
 
@@ -2202,11 +2204,13 @@ test('submitFeedback() sends feedback to configured endpoint and tracks location
       const feedbackPayload = JSON.parse(String(calls[0]?.init?.body)) as {
         location?: string;
         appSurface?: string;
+        originName?: string;
         metadata?: Record<string, unknown>;
         feedback?: string;
       };
       assert.equal(feedbackPayload.location, 'onboarding/paywall');
       assert.equal(feedbackPayload.appSurface, 'ios_app');
+      assert.equal(feedbackPayload.originName, 'onboarding upsell gate');
       assert.equal(feedbackPayload.metadata?.category, 'feature');
       assert.equal(feedbackPayload.feedback, 'The onboarding paywall appears too early.');
 
@@ -2220,9 +2224,52 @@ test('submitFeedback() sends feedback to configured endpoint and tracks location
       const feedbackEvent = analyticsPayload.events.find((event) => event.eventName === 'feedback:submitted');
       assert.ok(feedbackEvent);
       assert.equal(feedbackEvent?.properties?.locationId, 'onboarding/paywall');
+      assert.equal(feedbackEvent?.properties?.originName, 'onboarding upsell gate');
       assert.equal(feedbackEvent?.properties?.feedbackSurface, 'ios_app');
       assert.equal('message' in (feedbackEvent?.properties ?? {}), false);
       assert.equal('feedback' in (feedbackEvent?.properties ?? {}), false);
+    } finally {
+      client.shutdown();
+    }
+  });
+});
+
+test('submitFeedback() works with serviceUrl-only feedback endpoints', async () => {
+  await withMockedGlobals(async (calls) => {
+    const client = init({
+      apiKey: 'pi_live_test',
+      endpoint: 'https://collector.analyticscli.com',
+      batchSize: 20,
+      flushIntervalMs: 60_000,
+      maxRetries: 0,
+      feedback: {
+        serviceUrl: 'https://api.analyticscli.com',
+        apiKey: 'project-feedback-key',
+        surface: 'ios_app',
+        originName: 'settings feedback modal',
+      },
+    });
+
+    try {
+      const result = await client.submitFeedback({
+        message: 'Restore copy needs better wording.',
+        category: 'ux',
+        locationId: 'settings/restore',
+      });
+
+      assert.equal(result.delivery, 'external_feedback_service');
+      assert.equal(result.appId, undefined);
+      assert.equal(result.originName, 'settings feedback modal');
+      assert.equal(calls.length, 1);
+
+      const feedbackPayload = JSON.parse(String(calls[0]?.init?.body)) as {
+        appId?: string;
+        location?: string;
+        originName?: string;
+      };
+      assert.equal(feedbackPayload.appId, undefined);
+      assert.equal(feedbackPayload.location, 'settings/restore');
+      assert.equal(feedbackPayload.originName, 'settings feedback modal');
     } finally {
       client.shutdown();
     }
@@ -2247,6 +2294,7 @@ test('submitFeedback() falls back to analytics-only mode when no feedback servic
       });
 
       assert.equal(result.delivery, 'analytics_only');
+      assert.equal(result.originName, null);
       assert.equal(calls.length, 0);
 
       await client.flush();

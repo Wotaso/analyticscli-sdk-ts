@@ -830,6 +830,10 @@ export class AnalyticsClient {
       this.projectSurface ||
       this.platform ||
       'app';
+    const originName =
+      this.readRequiredStringOption(input.originName) ||
+      this.readRequiredStringOption(config?.originName) ||
+      null;
     const category = this.readRequiredStringOption(input.category || 'other').toLowerCase() || 'other';
     const context = this.readRequiredStringOption(input.context);
     const metadata = this.mergeFeedbackMetadata(config?.metadata, input.metadata, {
@@ -853,12 +857,13 @@ export class AnalyticsClient {
       this.getEventUserId() ||
       this.anonId;
 
-    if (!config?.serviceUrl || !config?.appId) {
+    if (!config?.serviceUrl) {
       if (shouldTrackEvents) {
         this.track('feedback:submitted', {
           category,
           ...(rating !== undefined ? { rating } : {}),
           locationId,
+          ...(originName ? { originName } : {}),
           feedbackSurface: surface,
           feedbackDelivery: 'analytics_only',
         });
@@ -869,6 +874,7 @@ export class AnalyticsClient {
         delivery: 'analytics_only',
         locationId,
         surface,
+        originName,
       };
     }
 
@@ -892,11 +898,12 @@ export class AnalyticsClient {
         method: 'POST',
         headers,
         body: JSON.stringify({
-          appId: config.appId,
+          ...(config.appId ? { appId: config.appId } : {}),
           userId,
           feedback: message,
           location: locationId,
           appSurface: surface,
+          ...(originName ? { originName } : {}),
           metadata: {
             ...metadata,
             ...(rating !== undefined ? { rating } : {}),
@@ -919,6 +926,7 @@ export class AnalyticsClient {
           category,
           ...(rating !== undefined ? { rating } : {}),
           locationId,
+          ...(originName ? { originName } : {}),
           feedbackSurface: surface,
           feedbackDelivery: 'external_feedback_service',
         });
@@ -928,9 +936,10 @@ export class AnalyticsClient {
         ok: true,
         delivery: 'external_feedback_service',
         serviceUrl: config.serviceUrl,
-        appId: config.appId,
+        appId: config.appId || undefined,
         locationId,
         surface,
+        originName,
       };
     } catch (error) {
       if (shouldTrackEvents) {
@@ -938,6 +947,7 @@ export class AnalyticsClient {
           category,
           ...(rating !== undefined ? { rating } : {}),
           locationId,
+          ...(originName ? { originName } : {}),
           feedbackSurface: surface,
         });
       }
@@ -2008,6 +2018,7 @@ export class AnalyticsClient {
       appId: this.readRequiredStringOption(input.appId) || undefined,
       surface: this.normalizeProjectSurfaceOption(input.surface),
       locationId: this.readRequiredStringOption(input.locationId) || undefined,
+      originName: this.readRequiredStringOption(input.originName) || undefined,
       userId: this.readRequiredStringOption(input.userId) || undefined,
       metadata: this.mergeFeedbackMetadata(input.metadata),
       timeoutMs:

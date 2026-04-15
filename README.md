@@ -187,9 +187,10 @@ Tenant feedback collection is also supported:
 const analytics = init({
   apiKey: process.env.EXPO_PUBLIC_ANALYTICSCLI_PUBLISHABLE_API_KEY,
   feedback: {
-    serviceUrl: 'https://api.example.com',
-    appId: 'my-ios-app',
+    serviceUrl: 'https://api.analyticscli.com',
+    apiKey: process.env.EXPO_PUBLIC_ANALYTICSCLI_FEEDBACK_KEY,
     surface: 'ios_app',
+    originName: 'settings feedback sheet',
   },
 });
 
@@ -197,12 +198,15 @@ await analytics.submitFeedback({
   message: 'The restore screen is unclear.',
   category: 'ux',
   locationId: 'settings/restore',
+  originName: 'restore purchases footer',
 });
 ```
 
 Best practice:
 - always send a stable `locationId`
-- point `feedback.serviceUrl` at a tenant-owned backend/proxy or explicitly app-scoped feedback endpoint
+- always send a stable `originName` so feedback can be traced back to the exact product surface
+- point `feedback.serviceUrl` at a tenant-owned backend/proxy or the AnalyticsCLI feedback endpoint
+- for AnalyticsCLI-backed feedback, use a project-scoped public feedback key; `appId` is optional and only needed for third-party endpoints that require it
 - do not put privileged feedback secrets into mobile client binaries
 - the SDK tracks lightweight `feedback:*` analytics events without including the raw message text
 

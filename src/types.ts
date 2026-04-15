@@ -193,6 +193,10 @@ export type FeedbackClientOptions = {
    */
   locationId?: string | null;
   /**
+   * Default human-readable origin label describing where the feedback entry originated in the product.
+   */
+  originName?: string | null;
+  /**
    * Optional default user id for the feedback endpoint.
    * If omitted, the SDK uses the current identified user id or current anon id.
    */
@@ -215,6 +219,7 @@ export type FeedbackClientOptions = {
 export type FeedbackSubmissionInput = {
   message: string;
   locationId?: string;
+  originName?: string;
   category?: 'bug' | 'feature' | 'ux' | 'performance' | 'other';
   rating?: number;
   surface?: string;
@@ -230,6 +235,7 @@ export type FeedbackSubmissionResult = {
   appId?: string;
   locationId: string;
   surface: string;
+  originName: string | null;
 };
 
 export type AnalyticsConsentState = 'granted' | 'denied' | 'unknown';
