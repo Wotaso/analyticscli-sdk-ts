@@ -193,13 +193,19 @@ export class AnalyticsClient {
     this.endpoint = (
       this.readRequiredStringOption(normalizedOptions.endpoint) || DEFAULT_COLLECTOR_ENDPOINT
     ).replace(/\/$/, '');
-    this.batchSize = Math.min(normalizedOptions.batchSize ?? 20, DEFAULT_INGEST_LIMITS.maxBatchSize);
+    this.batchSize = Math.min(
+      normalizedOptions.batchSize ?? 20,
+      DEFAULT_INGEST_LIMITS.maxBatchSize,
+    );
     this.flushIntervalMs = normalizedOptions.flushIntervalMs ?? 5000;
     this.maxRetries = normalizedOptions.maxRetries ?? 4;
     this.debug = normalizedOptions.debug ?? false;
     this.onIngestError =
-      typeof normalizedOptions.onIngestError === 'function' ? normalizedOptions.onIngestError : null;
-    this.platform = this.normalizePlatformOption(normalizedOptions.platform) ?? detectDefaultPlatform();
+      typeof normalizedOptions.onIngestError === 'function'
+        ? normalizedOptions.onIngestError
+        : null;
+    this.platform =
+      this.normalizePlatformOption(normalizedOptions.platform) ?? detectDefaultPlatform();
     this.projectSurface = this.normalizeProjectSurfaceOption(normalizedOptions.projectSurface);
     this.appVersion =
       this.readRequiredStringOption(normalizedOptions.appVersion) || detectDefaultAppVersion();
@@ -216,7 +222,8 @@ export class AnalyticsClient {
     this.runtimeEnv = detectRuntimeEnv();
     this.persistConsentState = normalizedOptions.persistConsentState ?? false;
     this.consentStorageKey =
-      this.readRequiredStringOption(normalizedOptions.consentStorageKey) || DEFAULT_CONSENT_STORAGE_KEY;
+      this.readRequiredStringOption(normalizedOptions.consentStorageKey) ||
+      DEFAULT_CONSENT_STORAGE_KEY;
     this.hasExplicitInitialConsent = typeof normalizedOptions.initialConsentGranted === 'boolean';
     this.hasExplicitInitialFullTrackingConsent =
       typeof normalizedOptions.initialFullTrackingConsentGranted === 'boolean';
@@ -236,8 +243,9 @@ export class AnalyticsClient {
     const initialFullTrackingConsentGranted =
       typeof configuredFullTrackingConsent === 'boolean'
         ? configuredFullTrackingConsent
-        : persistedFullTrackingConsent ?? false;
-    this.fullTrackingConsentGranted = this.identityTrackingMode === 'always_on' || initialFullTrackingConsentGranted;
+        : (persistedFullTrackingConsent ?? false);
+    this.fullTrackingConsentGranted =
+      this.identityTrackingMode === 'always_on' || initialFullTrackingConsentGranted;
 
     this.storage = this.isFullTrackingActive() ? this.configuredStorage : null;
     this.storageReadsAreAsync = this.detectAsyncStorageReads();
@@ -259,7 +267,7 @@ export class AnalyticsClient {
     const initialConsentGranted =
       typeof configuredConsent === 'boolean'
         ? configuredConsent
-        : persistedConsent ?? this.hasIngestConfig;
+        : (persistedConsent ?? this.hasIngestConfig);
     this.consentGranted = this.hasIngestConfig && initialConsentGranted;
     if (this.hasExplicitInitialConsent && this.persistConsentState) {
       this.writePersistedConsent(this.storage, this.consentGranted);
@@ -587,7 +595,8 @@ export class AnalyticsClient {
       } satisfies OnboardingEventProperties;
 
       return {
-        view: (overrides) => track(ONBOARDING_EVENTS.STEP_VIEW, { ...stepProps, ...(overrides ?? {}) }),
+        view: (overrides) =>
+          track(ONBOARDING_EVENTS.STEP_VIEW, { ...stepProps, ...(overrides ?? {}) }),
         complete: (overrides) =>
           track(ONBOARDING_EVENTS.STEP_COMPLETE, { ...stepProps, ...(overrides ?? {}) }),
         surveyResponse: (input) =>
@@ -712,7 +721,9 @@ export class AnalyticsClient {
     properties: PaywallEventProperties,
     options: { allowPaywallEntryId: boolean },
   ): void {
-    const normalizedSource = this.readRequiredStringOption(this.readPropertyAsString(properties?.source));
+    const normalizedSource = this.readRequiredStringOption(
+      this.readPropertyAsString(properties?.source),
+    );
     if (!normalizedSource) {
       this.log('Dropping paywall event without required `source` property', { eventName });
       return;
@@ -834,7 +845,8 @@ export class AnalyticsClient {
       this.readRequiredStringOption(input.originName) ||
       this.readRequiredStringOption(config?.originName) ||
       null;
-    const category = this.readRequiredStringOption(input.category || 'other').toLowerCase() || 'other';
+    const category =
+      this.readRequiredStringOption(input.category || 'other').toLowerCase() || 'other';
     const context = this.readRequiredStringOption(input.context);
     const metadata = this.mergeFeedbackMetadata(config?.metadata, input.metadata, {
       category,
@@ -995,7 +1007,11 @@ export class AnalyticsClient {
     } catch (error) {
       this.queue = [...batch, ...this.queue];
       const ingestError = this.toIngestSendError(error);
-      const diagnostics = this.createIngestDiagnostics(ingestError, batch.length, this.queue.length);
+      const diagnostics = this.createIngestDiagnostics(
+        ingestError,
+        batch.length,
+        this.queue.length,
+      );
       if (ingestError.status === 401 || ingestError.status === 403) {
         this.flushPausedUntilMs = Date.now() + AUTH_FAILURE_FLUSH_PAUSE_MS;
         this.log('Pausing ingest flush after auth failure', {
@@ -1203,7 +1219,9 @@ export class AnalyticsClient {
     return this.parsePersistedConsent(readStorageSync(storage, this.consentStorageKey));
   }
 
-  private async readPersistedConsentAsync(storage: AnalyticsStorageAdapter | null): Promise<boolean | null> {
+  private async readPersistedConsentAsync(
+    storage: AnalyticsStorageAdapter | null,
+  ): Promise<boolean | null> {
     if (!this.persistConsentState) {
       return null;
     }
@@ -1427,7 +1445,10 @@ export class AnalyticsClient {
     }
   }
 
-  private withRuntimeMetadata(properties: EventProperties | undefined, sessionId: string): EventProperties {
+  private withRuntimeMetadata(
+    properties: EventProperties | undefined,
+    sessionId: string,
+  ): EventProperties {
     const sanitized = sanitizeProperties(properties);
     const nextEventIndex = this.sessionEventSeq + 1;
     this.sessionEventSeq = nextEventIndex;
@@ -1435,6 +1456,20 @@ export class AnalyticsClient {
 
     if (typeof sanitized.runtimeEnv !== 'string') {
       sanitized.runtimeEnv = this.runtimeEnv;
+    }
+    if (typeof sanitized.identityTrackingMode !== 'string') {
+      sanitized.identityTrackingMode = this.identityTrackingMode;
+    }
+    if (typeof sanitized.identityQuality !== 'string') {
+      sanitized.identityQuality = this.resolveEventIdentityQuality();
+    }
+    if (typeof sanitized.identityPersistence !== 'string') {
+      sanitized.identityPersistence = this.hasPersistentAnonymousIdentity()
+        ? 'persistent'
+        : 'ephemeral';
+    }
+    if (typeof sanitized.fullTrackingConsentGranted !== 'boolean') {
+      sanitized.fullTrackingConsentGranted = this.fullTrackingConsentGranted;
     }
     if (typeof sanitized.sessionEventIndex !== 'number') {
       sanitized.sessionEventIndex = nextEventIndex;
@@ -1447,10 +1482,7 @@ export class AnalyticsClient {
     properties: EventProperties | undefined,
     sessionId: string,
   ): boolean {
-    if (
-      !this.dedupeOnboardingStepViewsPerSession ||
-      eventName !== ONBOARDING_EVENTS.STEP_VIEW
-    ) {
+    if (!this.dedupeOnboardingStepViewsPerSession || eventName !== ONBOARDING_EVENTS.STEP_VIEW) {
       return false;
     }
 
@@ -1585,11 +1617,14 @@ export class AnalyticsClient {
       return false;
     }
 
-    this.log('Dropping overlapping onboarding screen event because onboarding:step_view already exists', {
-      sessionId,
-      overlapKey,
-      windowMs: this.screenViewDedupeWindowMs,
-    });
+    this.log(
+      'Dropping overlapping onboarding screen event because onboarding:step_view already exists',
+      {
+        sessionId,
+        overlapKey,
+        windowMs: this.screenViewDedupeWindowMs,
+      },
+    );
     return true;
   }
 
@@ -1665,7 +1700,8 @@ export class AnalyticsClient {
       return null;
     }
 
-    const flowId = toStableKey(this.readPropertyAsString(properties.onboardingFlowId)) ?? 'unknown_flow';
+    const flowId =
+      toStableKey(this.readPropertyAsString(properties.onboardingFlowId)) ?? 'unknown_flow';
     const flowVersion =
       toStableKey(this.readPropertyAsString(properties.onboardingFlowVersion)) ?? 'unknown_version';
     return `index:${flowId}|${flowVersion}|${stepIndex}`;
@@ -1682,7 +1718,8 @@ export class AnalyticsClient {
         : null;
     const normalizedScreenClass = toStableKey(normalizedScreenClassName ?? undefined);
     const isOnboardingScreen =
-      this.isOnboardingScreenName(normalizedName) || this.isOnboardingScreenName(normalizedScreenClass);
+      this.isOnboardingScreenName(normalizedName) ||
+      this.isOnboardingScreenName(normalizedScreenClass);
     if (!isOnboardingScreen) {
       return null;
     }
@@ -1717,11 +1754,12 @@ export class AnalyticsClient {
 
     const flowId =
       properties && typeof properties === 'object'
-        ? toStableKey(this.readPropertyAsString(properties.onboardingFlowId)) ?? 'unknown_flow'
+        ? (toStableKey(this.readPropertyAsString(properties.onboardingFlowId)) ?? 'unknown_flow')
         : 'unknown_flow';
     const flowVersion =
       properties && typeof properties === 'object'
-        ? toStableKey(this.readPropertyAsString(properties.onboardingFlowVersion)) ?? 'unknown_version'
+        ? (toStableKey(this.readPropertyAsString(properties.onboardingFlowVersion)) ??
+          'unknown_version')
         : 'unknown_version';
     return `index:${flowId}|${flowVersion}|${stepIndex}`;
   }
@@ -1797,7 +1835,8 @@ export class AnalyticsClient {
       return null;
     }
 
-    const flowId = toStableKey(this.readPropertyAsString(properties.onboardingFlowId)) ?? 'unknown_flow';
+    const flowId =
+      toStableKey(this.readPropertyAsString(properties.onboardingFlowId)) ?? 'unknown_flow';
     const flowVersion =
       toStableKey(this.readPropertyAsString(properties.onboardingFlowVersion)) ?? 'unknown_version';
     const stepKey = toStableKey(this.readPropertyAsString(properties.stepKey));
@@ -1920,7 +1959,9 @@ export class AnalyticsClient {
     return 'consent_gated';
   }
 
-  private resolveConfiguredStorage(options: Partial<AnalyticsClientOptions>): AnalyticsStorageAdapter | null {
+  private resolveConfiguredStorage(
+    options: Partial<AnalyticsClientOptions>,
+  ): AnalyticsStorageAdapter | null {
     if (this.identityTrackingMode === 'strict') {
       if (options.storage || options.useCookieStorage || options.cookieDomain) {
         this.log('Ignoring storage/cookie configuration because identityTrackingMode=strict');
@@ -1995,6 +2036,20 @@ export class AnalyticsClient {
     return this.userId;
   }
 
+  private hasPersistentAnonymousIdentity(): boolean {
+    return this.isFullTrackingActive() && (this.hasExplicitAnonId || this.storage !== null);
+  }
+
+  private resolveEventIdentityQuality(): 'identified' | 'persistent' | 'ephemeral' {
+    if (this.getEventUserId()) {
+      return 'identified';
+    }
+    if (this.hasPersistentAnonymousIdentity()) {
+      return 'persistent';
+    }
+    return 'ephemeral';
+  }
+
   private withEventContext(): EventContext {
     return {
       appBuild: this.context.appBuild,
@@ -2022,14 +2077,18 @@ export class AnalyticsClient {
       userId: this.readRequiredStringOption(input.userId) || undefined,
       metadata: this.mergeFeedbackMetadata(input.metadata),
       timeoutMs:
-        typeof input.timeoutMs === 'number' && Number.isFinite(input.timeoutMs) && input.timeoutMs > 0
+        typeof input.timeoutMs === 'number' &&
+        Number.isFinite(input.timeoutMs) &&
+        input.timeoutMs > 0
           ? input.timeoutMs
           : undefined,
       trackEvents: input.trackEvents !== false,
     };
   }
 
-  private mergeFeedbackMetadata(...sources: Array<FeedbackMetadata | null | undefined>): FeedbackMetadata {
+  private mergeFeedbackMetadata(
+    ...sources: Array<FeedbackMetadata | null | undefined>
+  ): FeedbackMetadata {
     const result: FeedbackMetadata = {};
     for (const source of sources) {
       if (!source || typeof source !== 'object') {

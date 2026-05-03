@@ -155,6 +155,10 @@ test('track() flushes a valid ingest batch', async () => {
       const onboardingStartEvent = payload.events.find((event) => event.eventName === 'onboarding:start');
       assert.ok(onboardingStartEvent);
       assert.equal(typeof onboardingStartEvent.properties?.runtimeEnv, 'string');
+      assert.equal(onboardingStartEvent.properties?.identityTrackingMode, 'consent_gated');
+      assert.equal(onboardingStartEvent.properties?.identityQuality, 'ephemeral');
+      assert.equal(onboardingStartEvent.properties?.identityPersistence, 'ephemeral');
+      assert.equal(onboardingStartEvent.properties?.fullTrackingConsentGranted, false);
     } finally {
       client.shutdown();
     }
@@ -908,7 +912,11 @@ test('setFullTrackingConsent(true) enables persistence and identity linkage', as
 
       assert.equal(calls.length, 1);
       const payload = JSON.parse(String(calls[0]?.init?.body)) as {
-        events: Array<{ eventName: string; userId?: string | null }>;
+        events: Array<{
+          eventName: string;
+          userId?: string | null;
+          properties?: Record<string, unknown>;
+        }>;
       };
       const trackedEvents = withoutSessionStart(payload.events);
 
@@ -959,6 +967,10 @@ test('enableFullTrackingWithoutConsent=true enables full tracking immediately', 
       );
       assert.equal(trackedEvents[0]?.userId, 'user_999');
       assert.equal(trackedEvents[1]?.userId, 'user_999');
+      assert.equal(trackedEvents[1]?.properties?.identityTrackingMode, 'always_on');
+      assert.equal(trackedEvents[1]?.properties?.identityQuality, 'identified');
+      assert.equal(trackedEvents[1]?.properties?.identityPersistence, 'persistent');
+      assert.equal(trackedEvents[1]?.properties?.fullTrackingConsentGranted, true);
       assert.equal(typeof globalThis.localStorage.getItem('pi_device_id'), 'string');
     } finally {
       client.shutdown();
