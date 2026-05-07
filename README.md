@@ -32,7 +32,7 @@ Before integrating, collect required values in [dash.analyticscli.com](https://d
 
 - Select the target project.
 - Open **API Keys** and copy the publishable ingest API key for SDK `apiKey`.
-- If you validate with CLI, create/copy a CLI `readonly_token` in the same **API Keys** area.
+- If you validate with CLI, create/copy an account CLI `readonly_token` in the same **API Keys** area.
 - Optional for CLI verification: set a default project once with `analyticscli projects select` (arrow-key picker), or pass `--project <project_id>` per command.
 
 ## Usage (Low Boilerplate)
