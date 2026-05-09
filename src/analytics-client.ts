@@ -302,8 +302,8 @@ export class AnalyticsClient {
     if ((options.persist ?? true) && this.persistConsentState) {
       this.writePersistedConsent(this.storage, granted);
     }
-    if (this.identityTrackingMode === 'consent_gated') {
-      this.setFullTrackingConsent(granted, options);
+    if (!granted && this.identityTrackingMode === 'consent_gated') {
+      this.setFullTrackingConsent(false, options);
     }
     if (!granted) {
       this.queue = [];

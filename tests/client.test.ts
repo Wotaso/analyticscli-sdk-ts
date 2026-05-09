@@ -479,6 +479,47 @@ test('initialConsentGranted=false requires explicit optIn() before tracking', as
   });
 });
 
+test('setConsent(true) enables event collection without enabling full tracking', async () => {
+  await withMockedGlobals(async (calls) => {
+    const storage = globalThis.localStorage as unknown as {
+      getItem: (key: string) => string | null;
+      setItem: (key: string, value: string) => void;
+      removeItem: (key: string) => void;
+    };
+    const client = init({
+      apiKey: 'pi_live_test',
+      endpoint: 'https://collector.analyticscli.com',
+      storage,
+      batchSize: 20,
+      flushIntervalMs: 60_000,
+      maxRetries: 0,
+      initialConsentGranted: false,
+      initialFullTrackingConsentGranted: false,
+    });
+
+    try {
+      client.setConsent(true);
+      client.setUser('user_123', { plan: 'pro' });
+      client.track('page_view');
+      await client.flush();
+
+      assert.equal(calls.length, 1);
+      const payload = JSON.parse(String(calls[0]?.init?.body)) as {
+        events: Array<{ eventName: string; userId?: string | null; properties?: Record<string, unknown> }>;
+      };
+      const trackedEvents = withoutSessionStart(payload.events);
+
+      assert.deepEqual(trackedEvents.map((event) => event.eventName), ['page_view']);
+      assert.equal(trackedEvents[0]?.userId, null);
+      assert.equal(trackedEvents[0]?.properties?.identityPersistence, 'ephemeral');
+      assert.equal(globalThis.localStorage.getItem('pi_device_id'), null);
+      assert.equal(globalThis.localStorage.getItem('pi_session_id'), null);
+    } finally {
+      client.shutdown();
+    }
+  });
+});
+
 test('persisted consent in storage is ignored in strict-only mode', async () => {
   await withMockedGlobals(async (calls) => {
     globalThis.localStorage.setItem('analyticscli:consent:v1', 'denied');

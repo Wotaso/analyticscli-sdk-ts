@@ -74,7 +74,7 @@ const analytics = init({
 });
 analytics.optOut(); // stop sending until optIn()
 // ...
-analytics.optIn();
+analytics.optIn(); // resumes event collection without enabling persistent identity
 ```
 
 Optional full-tracking consent gate (recommended default):
@@ -230,6 +230,7 @@ Identity tracking modes:
 
 Recommendation for global tenant apps:
 - keep `consent_gated` as default, especially when EU/EEA/UK traffic is in scope
+- for consent-required website analytics, start event collection disabled with `initialConsentGranted: false` or `initConsentFirst(...)`
 
 In strict phase (and in `strict` mode):
 - no persistent SDK identity across app/browser restarts
@@ -239,6 +240,11 @@ In strict phase (and in `strict` mode):
 `initialConsentGranted` is optional:
 - default: `true` when `apiKey` is present
 - you can still pause/resume collection at runtime with consent APIs when your app needs that
+- for optional EU/EEA/UK website analytics, set it to `false` until consent is granted
+
+Managed web ingest note:
+- for `platform=web`, the hosted edge collector replaces incoming SDK identifiers with short-lived salted identifiers and clears incoming `userId`
+- use `projectSurface` for segmentation such as `landing`, `dashboard`, or `app`
 
 Runtime collection control APIs:
 - `analytics.getConsent()` -> current in-memory consent

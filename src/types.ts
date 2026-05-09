@@ -362,7 +362,7 @@ export type AnalyticsClientOptions = {
   initialConsentGranted?: boolean | null;
   /**
    * Controls identity persistence behavior.
-   * - `consent_gated` (default): starts in strict mode and enables persistence only after consent
+   * - `consent_gated` (default): starts in strict mode and enables persistence only after full-tracking consent
    * - `always_on`: enables persistence immediately
    * - `strict`: disables persistence and identity linkage
    */
