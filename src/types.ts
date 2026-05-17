@@ -145,6 +145,7 @@ export type QueuedEvent = {
   anonId: string;
   userId?: string | null;
   properties: EventProperties;
+  privacyMode?: 'aggregate' | 'strict' | 'full';
   platform?: string;
   projectSurface?: string;
   appVersion?: string;

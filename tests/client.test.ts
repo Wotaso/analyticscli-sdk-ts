@@ -149,11 +149,16 @@ test('track() flushes a valid ingest batch', async () => {
       assert.equal(headers['x-api-key'], 'pi_live_test');
 
       const payload = JSON.parse(String(calls[0]?.init?.body)) as {
-        events: Array<{ eventName: string; properties?: Record<string, unknown> }>;
+        events: Array<{
+          eventName: string;
+          privacyMode?: string;
+          properties?: Record<string, unknown>;
+        }>;
       };
 
       const onboardingStartEvent = payload.events.find((event) => event.eventName === 'onboarding:start');
       assert.ok(onboardingStartEvent);
+      assert.equal(onboardingStartEvent.privacyMode, 'strict');
       assert.equal(typeof onboardingStartEvent.properties?.runtimeEnv, 'string');
       assert.equal(onboardingStartEvent.properties?.identityTrackingMode, 'consent_gated');
       assert.equal(onboardingStartEvent.properties?.identityQuality, 'ephemeral');
@@ -956,6 +961,7 @@ test('setFullTrackingConsent(true) enables persistence and identity linkage', as
         events: Array<{
           eventName: string;
           userId?: string | null;
+          privacyMode?: string;
           properties?: Record<string, unknown>;
         }>;
       };
@@ -967,6 +973,8 @@ test('setFullTrackingConsent(true) enables persistence and identity linkage', as
       );
       assert.equal(trackedEvents[0]?.userId, 'user_123');
       assert.equal(trackedEvents[1]?.userId, 'user_123');
+      assert.equal(trackedEvents[0]?.privacyMode, 'full');
+      assert.equal(trackedEvents[1]?.privacyMode, 'full');
       assert.equal(typeof globalThis.localStorage.getItem('pi_device_id'), 'string');
       assert.equal(typeof globalThis.localStorage.getItem('pi_session_id'), 'string');
     } finally {

@@ -19,6 +19,7 @@ const ISO_DATETIME_WITH_OFFSET_REGEX =
   /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/;
 
 const TYPE_VALUES = new Set(['track', 'screen', 'identify']);
+const PRIVACY_MODE_VALUES = new Set(['aggregate', 'strict', 'full']);
 
 const isRecord = (value: unknown): value is Record<string, unknown> => {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -67,6 +68,13 @@ const validateEvent = (event: unknown, index: number): IngestValidationResult =>
 
   if (!isRecord(event.properties)) {
     return { success: false, reason: `events[${index}].properties is invalid` };
+  }
+
+  if (
+    event.privacyMode !== undefined &&
+    (typeof event.privacyMode !== 'string' || !PRIVACY_MODE_VALUES.has(event.privacyMode))
+  ) {
+    return { success: false, reason: `events[${index}].privacyMode is invalid` };
   }
 
   if (!isOptionalStringMax(event.platform, 64)) {

@@ -365,6 +365,7 @@ export class AnalyticsClient {
       anonId: this.anonId,
       userId: this.getEventUserId(),
       properties: this.withRuntimeMetadata({ source: 'sdk_mount' }, sessionId),
+      privacyMode: this.resolveEventPrivacyMode(),
       platform: this.platform,
       projectSurface: this.projectSurface,
       appVersion: this.appVersion,
@@ -410,6 +411,7 @@ export class AnalyticsClient {
       anonId: this.anonId,
       userId: normalizedUserId,
       properties: this.withRuntimeMetadata(normalizedTraits, sessionId),
+      privacyMode: this.resolveEventPrivacyMode(),
       platform: this.platform,
       projectSurface: this.projectSurface,
       appVersion: this.appVersion,
@@ -500,6 +502,7 @@ export class AnalyticsClient {
       anonId: this.anonId,
       userId: this.getEventUserId(),
       properties: this.withRuntimeMetadata(properties, sessionId),
+      privacyMode: this.resolveEventPrivacyMode(),
       platform: this.platform,
       projectSurface: this.projectSurface,
       appVersion: this.appVersion,
@@ -805,6 +808,7 @@ export class AnalyticsClient {
       anonId: this.anonId,
       userId: this.getEventUserId(),
       properties: this.withRuntimeMetadata(properties, sessionId),
+      privacyMode: this.resolveEventPrivacyMode(),
       platform: this.platform,
       projectSurface: this.projectSurface,
       appVersion: this.appVersion,
@@ -2051,6 +2055,10 @@ export class AnalyticsClient {
       return 'persistent';
     }
     return 'ephemeral';
+  }
+
+  private resolveEventPrivacyMode(): 'strict' | 'full' {
+    return this.isFullTrackingActive() ? 'full' : 'strict';
   }
 
   private withEventContext(): EventContext {
