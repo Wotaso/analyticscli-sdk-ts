@@ -34,7 +34,12 @@ export type {
   EventProperties,
   IdentityTrackingMode,
   InitInput,
+  InitFromEnvMissingConfig,
+  InitFromEnvMissingConfigMode,
+  InitFromEnvOptions,
   InitOptions,
+  BrowserInitFromEnvOptions,
+  ReactNativeInitFromEnvOptions,
   OnboardingEventProperties,
   OnboardingStepTracker,
   OnboardingTracker,
@@ -51,6 +56,14 @@ export type {
 
 export { AnalyticsClient } from './analytics-client.js';
 import { AnalyticsClient } from './analytics-client.js';
+export {
+  BROWSER_API_KEY_ENV_KEYS,
+  DEFAULT_API_KEY_ENV_KEYS,
+  REACT_NATIVE_API_KEY_ENV_KEYS,
+  initBrowserFromEnv,
+  initFromEnv,
+  initReactNativeFromEnv,
+} from './env.js';
 import type { InitInput, InitOptions } from './types.js';
 
 const normalizeInitInput = (input: InitInput): InitOptions => {

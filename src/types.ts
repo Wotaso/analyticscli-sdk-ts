@@ -444,6 +444,43 @@ export type AnalyticsClientOptions = {
 
 export type InitOptions = AnalyticsClientOptions;
 
+export type InitFromEnvMissingConfigMode = 'noop' | 'throw';
+
+export type InitFromEnvMissingConfig = {
+  /**
+   * Environment keys checked while resolving the publishable API key.
+   */
+  checkedKeys: string[];
+  /**
+   * Human-readable setup message safe to show in logs or setup tooling.
+   */
+  message: string;
+};
+
+export type InitFromEnvOptions = InitOptions & {
+  /**
+   * Explicit env object for bundlers/frameworks where public env values are not available on process.env.
+   * Examples: `import.meta.env`, Next public runtime config, or a test env object.
+   */
+  env?: Record<string, unknown> | null;
+  /**
+   * API key env names to check before falling back to SDK defaults.
+   */
+  envKeys?: readonly string[] | null;
+  /**
+   * Missing-config behavior. Defaults to `noop`, which creates a safe no-op client.
+   */
+  missingConfigMode?: InitFromEnvMissingConfigMode | null;
+  /**
+   * Optional hook for setup tooling or app diagnostics when no publishable API key is found.
+   */
+  onMissingConfig?: ((missing: InitFromEnvMissingConfig) => void) | null;
+};
+
+export type BrowserInitFromEnvOptions = InitFromEnvOptions;
+
+export type ReactNativeInitFromEnvOptions = InitFromEnvOptions;
+
 export type SDKEventName = OnboardingEventName | PaywallJourneyEventName | OnboardingSurveyEventName;
 
 export type InitInput = InitOptions | string | null | undefined;

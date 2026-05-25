@@ -1,9 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  BROWSER_API_KEY_ENV_KEYS,
+  DEFAULT_API_KEY_ENV_KEYS,
   init,
   initConsentFirst,
   initAsync,
+  initBrowserFromEnv,
+  initFromEnv,
   ONBOARDING_EVENTS,
   ONBOARDING_SURVEY_EVENTS,
   PAYWALL_EVENTS,
@@ -187,6 +191,75 @@ test('init() supports the short apiKey form', async () => {
   });
 });
 
+test('initFromEnv() resolves publishable env keys without WRITE_KEY fallbacks', async () => {
+  assert.ok(!DEFAULT_API_KEY_ENV_KEYS.some((key) => key.includes('WRITE_KEY')));
+
+  await withMockedGlobals(async (calls) => {
+    const client = initFromEnv({
+      env: {
+        ANALYTICSCLI_WRITE_KEY: 'legacy_should_not_be_used',
+        NEXT_PUBLIC_ANALYTICSCLI_PUBLISHABLE_API_KEY: 'pi_live_env',
+      },
+      flushIntervalMs: 60_000,
+      maxRetries: 0,
+    });
+
+    try {
+      client.track('onboarding:start');
+      await client.flush();
+
+      assert.equal(calls.length, 1);
+      const headers = (calls[0]?.init?.headers ?? {}) as Record<string, string>;
+      assert.equal(headers['x-api-key'], 'pi_live_env');
+    } finally {
+      client.shutdown();
+    }
+  });
+});
+
+test('initFromEnv() can throw when no publishable API key is configured', () => {
+  assert.throws(
+    () =>
+      initFromEnv({
+        env: {
+          ANALYTICSCLI_WRITE_KEY: 'legacy_should_not_be_used',
+        },
+        missingConfigMode: 'throw',
+      }),
+    /Missing AnalyticsCLI publishable API key/,
+  );
+});
+
+test('initBrowserFromEnv() uses browser env key order and defaults platform to web', async () => {
+  assert.ok(!BROWSER_API_KEY_ENV_KEYS.some((key) => key.includes('WRITE_KEY')));
+
+  await withMockedGlobals(async (calls) => {
+    const client = initBrowserFromEnv({
+      env: {
+        VITE_ANALYTICSCLI_PUBLISHABLE_API_KEY: 'pi_live_browser_env',
+      },
+      flushIntervalMs: 60_000,
+      maxRetries: 0,
+    });
+
+    try {
+      client.track('page_view');
+      await client.flush();
+
+      assert.equal(calls.length, 1);
+      const headers = (calls[0]?.init?.headers ?? {}) as Record<string, string>;
+      assert.equal(headers['x-api-key'], 'pi_live_browser_env');
+      const payload = JSON.parse(String(calls[0]?.init?.body)) as {
+        events: Array<{ eventName: string; platform?: string }>;
+      };
+      const pageView = payload.events.find((event) => event.eventName === 'page_view');
+      assert.equal(pageView?.platform, 'web');
+    } finally {
+      client.shutdown();
+    }
+  });
+});
+
 test('initConsentFirst() starts with tracking disabled until optIn()', async () => {
   await withMockedGlobals(async (calls) => {
     const client = initConsentFirst('pi_live_test');
@@ -237,6 +310,98 @@ test('init() tolerates window objects without addEventListener', () => {
       });
     } else {
       Reflect.deleteProperty(globalThis, 'window');
+    }
+  }
+});
+
+test('browser lifecycle events flush queued events and shutdown removes listeners', async () => {
+  const calls: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];
+  const originalFetch = globalThis.fetch;
+  const hadWindow = Object.prototype.hasOwnProperty.call(globalThis, 'window');
+  const originalWindow = (globalThis as { window?: unknown }).window;
+  const hadDocument = Object.prototype.hasOwnProperty.call(globalThis, 'document');
+  const originalDocument = (globalThis as { document?: unknown }).document;
+  const listeners = new Map<string, Set<EventListener>>();
+  const windowLike = {
+    addEventListener: (eventName: string, handler: EventListener) => {
+      const eventListeners = listeners.get(eventName) ?? new Set<EventListener>();
+      eventListeners.add(handler);
+      listeners.set(eventName, eventListeners);
+    },
+    removeEventListener: (eventName: string, handler: EventListener) => {
+      listeners.get(eventName)?.delete(handler);
+    },
+  };
+
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    calls.push({ input, init });
+    return new Response(JSON.stringify({ accepted: true }), {
+      status: 202,
+      headers: { 'content-type': 'application/json' },
+    });
+  }) as typeof globalThis.fetch;
+
+  Object.defineProperty(globalThis, 'window', {
+    value: windowLike,
+    configurable: true,
+    writable: true,
+  });
+  Object.defineProperty(globalThis, 'document', {
+    value: { visibilityState: 'hidden' },
+    configurable: true,
+    writable: true,
+  });
+
+  const dispatch = async (eventName: string) => {
+    for (const handler of listeners.get(eventName) ?? []) {
+      handler({ type: eventName } as Event);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  };
+
+  const client = init({
+    apiKey: 'pi_live_lifecycle',
+    flushIntervalMs: 60_000,
+    maxRetries: 0,
+  });
+
+  try {
+    assert.equal(listeners.get('pagehide')?.size, 1);
+    assert.equal(listeners.get('visibilitychange')?.size, 1);
+    assert.equal(listeners.get('beforeunload')?.size, 1);
+
+    client.track('app_open');
+    await dispatch('pagehide');
+    assert.equal(calls.length, 1);
+
+    client.track('feature:opened');
+    client.shutdown();
+    assert.equal(listeners.get('pagehide')?.size, 0);
+    assert.equal(listeners.get('visibilitychange')?.size, 0);
+    assert.equal(listeners.get('beforeunload')?.size, 0);
+
+    await dispatch('visibilitychange');
+    assert.equal(calls.length, 1);
+  } finally {
+    client.shutdown();
+    globalThis.fetch = originalFetch;
+    if (hadWindow) {
+      Object.defineProperty(globalThis, 'window', {
+        value: originalWindow,
+        configurable: true,
+        writable: true,
+      });
+    } else {
+      Reflect.deleteProperty(globalThis, 'window');
+    }
+    if (hadDocument) {
+      Object.defineProperty(globalThis, 'document', {
+        value: originalDocument,
+        configurable: true,
+        writable: true,
+      });
+    } else {
+      Reflect.deleteProperty(globalThis, 'document');
     }
   }
 });

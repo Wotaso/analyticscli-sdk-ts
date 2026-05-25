@@ -106,6 +106,14 @@ type IngestSendErrorInput = {
   cause?: unknown;
 };
 
+type BrowserFlushEvent = 'beforeunload' | 'pagehide' | 'visibilitychange';
+
+type BrowserLifecycleHandler = {
+  target: Window;
+  eventName: BrowserFlushEvent;
+  handler: EventListener;
+};
+
 class IngestSendError extends Error {
   public readonly retryable: boolean;
   public readonly attempts: number;
@@ -160,6 +168,7 @@ export class AnalyticsClient {
   private readonly hasExplicitAnonId: boolean;
   private readonly hasExplicitSessionId: boolean;
   private readonly hydrationPromise: Promise<void>;
+  private readonly browserLifecycleHandlers: BrowserLifecycleHandler[] = [];
 
   private queue: QueuedEvent[] = [];
   private flushTimer: ReturnType<typeof setInterval> | null = null;
@@ -1041,6 +1050,13 @@ export class AnalyticsClient {
       clearInterval(this.flushTimer);
       this.flushTimer = null;
     }
+    while (this.browserLifecycleHandlers.length > 0) {
+      const listener = this.browserLifecycleHandlers.pop();
+      if (!listener || typeof listener.target.removeEventListener !== 'function') {
+        continue;
+      }
+      listener.target.removeEventListener(listener.eventName, listener.handler);
+    }
   }
 
   private enqueue(event: QueuedEvent): void {
@@ -1252,10 +1268,27 @@ export class AnalyticsClient {
     }, this.flushIntervalMs);
 
     if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
-      window.addEventListener('beforeunload', () => {
+      this.addBrowserFlushListener('pagehide', () => {
+        this.scheduleFlush();
+      });
+      this.addBrowserFlushListener('visibilitychange', () => {
+        if (typeof document === 'undefined' || document.visibilityState === 'hidden') {
+          this.scheduleFlush();
+        }
+      });
+      this.addBrowserFlushListener('beforeunload', () => {
         this.scheduleFlush();
       });
     }
+  }
+
+  private addBrowserFlushListener(eventName: BrowserFlushEvent, handler: EventListener): void {
+    window.addEventListener(eventName, handler);
+    this.browserLifecycleHandlers.push({
+      target: window,
+      eventName,
+      handler,
+    });
   }
 
   private ensureDeviceId(): string {

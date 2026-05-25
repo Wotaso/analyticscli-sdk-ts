@@ -35,6 +35,48 @@ Before integrating, collect required values in [dash.analyticscli.com](https://d
 - If you validate with CLI, create/copy an account CLI `readonly_token` in the same **API Keys** area.
 - Optional for CLI verification: set a default project once with `analyticscli projects select` (arrow-key picker), or pass `--project <project_id>` per command.
 
+## Web / JavaScript Setup
+
+For web apps, keep setup explicit and publishable-key only:
+
+```ts
+import { init } from '@analyticscli/sdk';
+
+export const analytics = init({
+  apiKey: process.env.NEXT_PUBLIC_ANALYTICSCLI_PUBLISHABLE_API_KEY ?? '',
+  platform: 'web',
+  projectSurface: 'app',
+  identityTrackingMode: 'consent_gated',
+});
+```
+
+Use the public env name for your framework:
+
+- Next.js: `NEXT_PUBLIC_ANALYTICSCLI_PUBLISHABLE_API_KEY`
+- Vite/Astro: `VITE_ANALYTICSCLI_PUBLISHABLE_API_KEY`
+- SvelteKit: `PUBLIC_ANALYTICSCLI_PUBLISHABLE_API_KEY`
+- Plain browser builds: pass the key from your own runtime config object
+
+Do not use `WRITE_KEY` env names in browser code.
+The SDK automatically flushes queued browser events on `pagehide`, hidden
+`visibilitychange`, and `beforeunload`, then removes those listeners on
+`analytics.shutdown()`.
+
+Env-first helpers are available for setup tooling and small apps:
+
+```ts
+import { initBrowserFromEnv } from '@analyticscli/sdk';
+
+const analytics = initBrowserFromEnv({
+  env: import.meta.env,
+  missingConfigMode: 'throw',
+  identityTrackingMode: 'consent_gated',
+});
+```
+
+For production app templates, explicit `init({ apiKey })` stays the clearest
+option because each framework exposes public env differently.
+
 ## Usage (Low Boilerplate)
 
 ```ts
