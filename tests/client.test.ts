@@ -2502,10 +2502,61 @@ test('submitFeedback() works with serviceUrl-only feedback endpoints', async () 
   });
 });
 
-test('submitFeedback() falls back to analytics-only mode when no feedback service is configured', async () => {
+test('submitFeedback() uses the AnalyticsCLI feedback endpoint by default', async () => {
   await withMockedGlobals(async (calls) => {
     const client = init({
       apiKey: 'pi_live_test',
+      endpoint: 'https://collector.analyticscli.com',
+      batchSize: 20,
+      flushIntervalMs: 60_000,
+      maxRetries: 0,
+    });
+
+    try {
+      const result = await client.submitFeedback({
+        message: 'Need a better restore purchases explanation.',
+        locationId: 'settings/restore',
+        category: 'ux',
+      });
+
+      assert.equal(result.delivery, 'external_feedback_service');
+      assert.equal(result.serviceUrl, 'https://api.analyticscli.com');
+      assert.equal(result.originName, null);
+      assert.equal(calls.length, 1);
+
+      assert.equal(String(calls[0]?.input), 'https://api.analyticscli.com/v1/feedback');
+      const feedbackHeaders = (calls[0]?.init?.headers ?? {}) as Record<string, string>;
+      assert.equal(feedbackHeaders['x-feedback-key'], 'pi_live_test');
+
+      const feedbackPayload = JSON.parse(String(calls[0]?.init?.body)) as {
+        feedback?: string;
+        location?: string;
+        category?: string;
+      };
+      assert.equal(feedbackPayload.feedback, 'Need a better restore purchases explanation.');
+      assert.equal(feedbackPayload.location, 'settings/restore');
+      assert.equal(feedbackPayload.category, 'ux');
+
+      await client.flush();
+      assert.equal(calls.length, 2);
+
+      const analyticsPayload = JSON.parse(String(calls[1]?.init?.body)) as {
+        events: Array<{ eventName: string; properties?: Record<string, unknown> }>;
+      };
+      const feedbackEvent = analyticsPayload.events.find((event) => event.eventName === 'feedback:submitted');
+      assert.ok(feedbackEvent);
+      assert.equal(feedbackEvent?.properties?.feedbackDelivery, 'external_feedback_service');
+      assert.equal(feedbackEvent?.properties?.locationId, 'settings/restore');
+    } finally {
+      client.shutdown();
+    }
+  });
+});
+
+test('submitFeedback() falls back to analytics-only mode when no feedback key is available', async () => {
+  await withMockedGlobals(async (calls) => {
+    const client = init({
+      apiKey: '',
       endpoint: 'https://collector.analyticscli.com',
       batchSize: 20,
       flushIntervalMs: 60_000,
@@ -2524,15 +2575,7 @@ test('submitFeedback() falls back to analytics-only mode when no feedback servic
       assert.equal(calls.length, 0);
 
       await client.flush();
-      assert.equal(calls.length, 1);
-
-      const analyticsPayload = JSON.parse(String(calls[0]?.init?.body)) as {
-        events: Array<{ eventName: string; properties?: Record<string, unknown> }>;
-      };
-      const feedbackEvent = analyticsPayload.events.find((event) => event.eventName === 'feedback:submitted');
-      assert.ok(feedbackEvent);
-      assert.equal(feedbackEvent?.properties?.feedbackDelivery, 'analytics_only');
-      assert.equal(feedbackEvent?.properties?.locationId, 'settings/restore');
+      assert.equal(calls.length, 0);
     } finally {
       client.shutdown();
     }

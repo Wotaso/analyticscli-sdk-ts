@@ -64,6 +64,7 @@ import type {
 } from './types.js';
 
 const DEFAULT_CONSENT_STORAGE_KEY = 'analyticscli:consent:v1';
+const DEFAULT_FEEDBACK_SERVICE_URL = 'https://api.analyticscli.com';
 const AUTH_FAILURE_FLUSH_PAUSE_MS = 60_000;
 
 const resolveDefaultOsNameFromPlatform = (platform: string | undefined): string | undefined => {
@@ -882,7 +883,10 @@ export class AnalyticsClient {
       this.getEventUserId() ||
       this.anonId;
 
-    if (!config?.serviceUrl) {
+    const serviceUrl = this.readRequiredStringOption(config?.serviceUrl) || DEFAULT_FEEDBACK_SERVICE_URL;
+    const feedbackApiKey = this.readRequiredStringOption(config?.apiKey) || this.apiKey;
+
+    if (!serviceUrl || !feedbackApiKey) {
       if (shouldTrackEvents) {
         this.track('feedback:submitted', {
           category,
@@ -904,7 +908,7 @@ export class AnalyticsClient {
     }
 
     const controller = typeof AbortController === 'function' ? new AbortController() : null;
-    const timeoutMs = config.timeoutMs ?? 10_000;
+    const timeoutMs = config?.timeoutMs ?? 10_000;
     const timer =
       controller && Number.isFinite(timeoutMs) && timeoutMs > 0
         ? setTimeout(() => controller.abort(), timeoutMs)
@@ -914,16 +918,16 @@ export class AnalyticsClient {
       const headers: Record<string, string> = {
         'content-type': 'application/json',
       };
-      const apiKey = this.readRequiredStringOption(config.apiKey);
-      if (apiKey) {
-        headers[this.readRequiredStringOption(config.apiKeyHeader) || 'x-feedback-key'] = apiKey;
+      if (feedbackApiKey) {
+        headers[this.readRequiredStringOption(config?.apiKeyHeader) || 'x-feedback-key'] =
+          feedbackApiKey;
       }
 
-      const response = await fetch(`${config.serviceUrl.replace(/\/$/, '')}/v1/feedback`, {
+      const response = await fetch(`${serviceUrl.replace(/\/$/, '')}/v1/feedback`, {
         method: 'POST',
         headers,
         body: JSON.stringify({
-          ...(config.appId ? { appId: config.appId } : {}),
+          ...(config?.appId ? { appId: config.appId } : {}),
           userId,
           feedback: message,
           category,
@@ -963,8 +967,8 @@ export class AnalyticsClient {
       return {
         ok: true,
         delivery: 'external_feedback_service',
-        serviceUrl: config.serviceUrl,
-        appId: config.appId || undefined,
+        serviceUrl,
+        appId: config?.appId || undefined,
         locationId,
         surface,
         originName,

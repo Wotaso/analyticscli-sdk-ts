@@ -10,14 +10,10 @@ Use the same package in:
 - Browser React apps
 - plain JavaScript and TypeScript codebases
 
-Current npm release channel: preview / experimental beta.
-If no stable release exists yet, `latest` points to the newest preview.
-Once stable releases exist, `latest` is pinned to the newest stable.
-
 ## Install
 
 ```bash
-npm install @analyticscli/sdk@preview
+npm install @analyticscli/sdk
 ```
 
 When a stable release becomes available, install without a tag:

@@ -1,6 +1,6 @@
 {
   "name": "@analyticscli/sdk",
-  "version": "0.1.1-preview.0",
+  "version": "0.1.1",
   "description": "TypeScript SDK for sending onboarding, paywall, purchase and survey analytics events to AnalyticsCLI.",
   "license": "MIT",
   "type": "module",
@@ -36,7 +36,7 @@
     "access": "public"
   },
   "scripts": {
-    "build": "tsup src/index.ts src/browser.ts src/react-native.ts --format esm,cjs --dts",
+    "build": "rm -rf dist && tsup src/index.ts src/browser.ts src/react-native.ts --format esm,cjs --dts",
     "dev": "tsup src/index.ts src/browser.ts src/react-native.ts --format esm,cjs --dts --watch",
     "prepack": "npm run build",
     "typecheck": "tsc -p tsconfig.json --noEmit",

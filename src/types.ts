@@ -169,12 +169,14 @@ export type QueuedEvent = {
 export type FeedbackClientOptions = {
   /**
    * Preferred tenant-owned feedback endpoint or external feedback service base URL.
-   * Best practice for mobile apps: point this at your own backend/proxy instead of shipping privileged secrets in-app.
+   * Defaults to the AnalyticsCLI feedback API. You can point this at your own backend/proxy
+   * when you need additional moderation, routing, or data-governance controls.
    */
   serviceUrl?: string | null;
   /**
    * Optional API key/header value for external feedback services.
-   * Avoid setting this in mobile client code unless the key is app-scoped and intended for public use.
+   * Defaults to the SDK publishable API key. Avoid overriding this in mobile client code
+   * unless the key is app-scoped and intended for public use.
    */
   apiKey?: string | null;
   /**
