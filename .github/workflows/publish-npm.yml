@@ -23,6 +23,9 @@ jobs:
           node-version: 22
           registry-url: https://registry.npmjs.org
 
+      - name: Use current npm
+        run: npm install -g npm@^11.5.1
+
       - name: Install dependencies
         run: npm install
 
@@ -72,98 +75,50 @@ jobs:
             echo "already_published=false" >> "${GITHUB_OUTPUT}"
           fi
 
-      - name: Publish package (idempotent)
+      - name: Publish package
         id: publish_step
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        if: steps.npm_version_check.outputs.already_published != 'true'
         run: |
-          if [[ "${{ steps.npm_version_check.outputs.already_published }}" == "true" ]]; then
-            echo "Version ${{ steps.release_meta.outputs.version }} already exists on npm; skipping publish."
-            echo "already_published=true" >> "${GITHUB_OUTPUT}"
-            exit 0
-          fi
-
           publish_output="$(mktemp)"
           set +e
-          npm publish --access public --tag "${{ steps.release_meta.outputs.dist_tag }}" 2>&1 | tee "${publish_output}"
+          env -u NODE_AUTH_TOKEN npm publish --access public --tag "${{ steps.release_meta.outputs.dist_tag }}" --provenance 2>&1 | tee "${publish_output}"
           publish_exit=$?
           set -e
 
           if [[ ${publish_exit} -eq 0 ]]; then
-            echo "already_published=false" >> "${GITHUB_OUTPUT}"
             exit 0
           fi
 
           if grep -Fq "You cannot publish over the previously published versions" "${publish_output}"; then
             echo "Version ${{ steps.release_meta.outputs.version }} became already published while workflow was running; continuing."
-            echo "already_published=true" >> "${GITHUB_OUTPUT}"
             exit 0
           fi
 
           exit "${publish_exit}"
 
-      - name: Enforce npm dist-tag policy
+      - name: Verify npm package and dist-tag
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           PACKAGE_NAME: '@analyticscli/sdk'
           RELEASE_VERSION: ${{ steps.release_meta.outputs.version }}
-          RELEASE_IS_PRERELEASE: ${{ steps.release_meta.outputs.prerelease }}
+          RELEASE_DIST_TAG: ${{ steps.release_meta.outputs.dist_tag }}
         run: |
-          expected_latest=""
-
-          if [[ "${RELEASE_IS_PRERELEASE}" == "true" ]]; then
-            npm dist-tag add "${PACKAGE_NAME}@${RELEASE_VERSION}" preview
-
-            latest_stable="$(
-              npm view "${PACKAGE_NAME}" versions --json \
-                | node -e "
-                    let input = '';
-                    process.stdin.on('data', (chunk) => (input += chunk));
-                    process.stdin.on('end', () => {
-                      const versions = JSON.parse(input);
-                      const list = (Array.isArray(versions) ? versions : [versions]).filter(
-                        (version) => typeof version === 'string' && !version.includes('-')
-                      );
-                      list.sort((a, b) => {
-                        const pa = a.split('.').map((n) => Number.parseInt(n, 10));
-                        const pb = b.split('.').map((n) => Number.parseInt(n, 10));
-                        for (let i = 0; i < 3; i += 1) {
-                          const diff = (pa[i] || 0) - (pb[i] || 0);
-                          if (diff !== 0) return diff;
-                        }
-                        return 0;
-                      });
-                      process.stdout.write(list[list.length - 1] ?? '');
-                    });
-                  "
-            )"
-
-            if [[ -n "${latest_stable}" ]]; then
-              npm dist-tag add "${PACKAGE_NAME}@${latest_stable}" latest
-              expected_latest="${latest_stable}"
-              echo "Pinned latest dist-tag to stable version ${latest_stable}."
+          for attempt in {1..18}; do
+            if npm view "${PACKAGE_NAME}@${RELEASE_VERSION}" version >/dev/null 2>&1; then
+              effective_tag="$(npm view "${PACKAGE_NAME}" "dist-tags.${RELEASE_DIST_TAG}" --json 2>/dev/null || true)"
+              effective_tag="${effective_tag//\"/}"
+              if [[ "${effective_tag}" == "${RELEASE_VERSION}" ]]; then
+                npm view "${PACKAGE_NAME}" version dist-tags --json
+                exit 0
+              fi
+              echo "npm package visible, waiting for dist-tag ${RELEASE_DIST_TAG}=${RELEASE_VERSION}; retry ${attempt}/18"
             else
-              npm dist-tag add "${PACKAGE_NAME}@${RELEASE_VERSION}" latest
-              expected_latest="${RELEASE_VERSION}"
-              echo "No stable version exists yet; latest points to prerelease ${RELEASE_VERSION}."
+              echo "npm package not visible yet; retry ${attempt}/18"
             fi
-          else
-            npm dist-tag add "${PACKAGE_NAME}@${RELEASE_VERSION}" latest
-            expected_latest="${RELEASE_VERSION}"
-          fi
+            sleep 10
+          done
 
-          effective_latest="$(npm view "${PACKAGE_NAME}" dist-tags.latest --json 2>/dev/null || true)"
-          effective_latest="${effective_latest//\"/}"
-
-          if [[ -z "${expected_latest}" ]]; then
-            echo "Dist-tag policy error: expected_latest was not computed." >&2
-            exit 1
-          fi
-
-          if [[ "${effective_latest}" != "${expected_latest}" ]]; then
-            echo "Dist-tag policy violation: latest=${effective_latest}, expected=${expected_latest}." >&2
-            exit 1
-          fi
+          echo "Package or dist-tag is still not visible on npm after retries." >&2
+          exit 1
 
       - name: Create or update GitHub release
         env:
@@ -172,7 +127,7 @@ jobs:
           RELEASE_VERSION: ${{ steps.release_meta.outputs.version }}
           RELEASE_DIST_TAG: ${{ steps.release_meta.outputs.dist_tag }}
           RELEASE_IS_PRERELEASE: ${{ steps.release_meta.outputs.prerelease }}
-          RELEASE_ALREADY_PUBLISHED: ${{ steps.publish_step.outputs.already_published }}
+          RELEASE_ALREADY_PUBLISHED: ${{ steps.npm_version_check.outputs.already_published }}
           RELEASE_COMMIT: ${{ github.sha }}
         run: |
           notes_file="$(mktemp)"
