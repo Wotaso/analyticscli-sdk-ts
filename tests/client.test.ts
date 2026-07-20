@@ -1148,6 +1148,55 @@ test('setFullTrackingConsent(true) enables persistence and identity linkage', as
   });
 });
 
+test('revoking full tracking removes persisted identity and rotates the active session', async () => {
+  await withMockedGlobals(async (calls) => {
+    const storage = globalThis.localStorage as unknown as {
+      getItem: (key: string) => string | null;
+      setItem: (key: string, value: string) => void;
+      removeItem: (key: string) => void;
+    };
+    const client = init({
+      apiKey: 'pi_live_test',
+      endpoint: 'https://collector.analyticscli.com',
+      storage,
+      batchSize: 20,
+      flushIntervalMs: 60_000,
+      maxRetries: 0,
+    });
+
+    try {
+      client.setFullTrackingConsent(true);
+      client.track('before:withdrawal');
+      await client.flush();
+      const beforePayload = JSON.parse(String(calls.at(-1)?.init?.body)) as {
+        events: Array<{ eventName: string; anonId: string; sessionId: string }>;
+      };
+      const before = beforePayload.events.find((event) => event.eventName === 'before:withdrawal');
+      assert.ok(before);
+      assert.equal(typeof storage.getItem('pi_device_id'), 'string');
+      assert.equal(typeof storage.getItem('pi_session_id'), 'string');
+
+      client.setFullTrackingConsent(false);
+      assert.equal(storage.getItem('pi_device_id'), null);
+      assert.equal(storage.getItem('pi_session_id'), null);
+      assert.equal(storage.getItem('pi_last_seen'), null);
+
+      client.track('after:withdrawal');
+      await client.flush();
+      const afterPayload = JSON.parse(String(calls.at(-1)?.init?.body)) as {
+        events: Array<{ eventName: string; anonId: string; sessionId: string; userId?: string | null }>;
+      };
+      const after = afterPayload.events.find((event) => event.eventName === 'after:withdrawal');
+      assert.ok(after);
+      assert.notEqual(after.anonId, before.anonId);
+      assert.notEqual(after.sessionId, before.sessionId);
+      assert.equal(after.userId, null);
+    } finally {
+      client.shutdown();
+    }
+  });
+});
+
 test('enableFullTrackingWithoutConsent=true enables full tracking immediately', async () => {
   await withMockedGlobals(async (calls) => {
     const storage = globalThis.localStorage as unknown as {

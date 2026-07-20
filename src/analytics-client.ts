@@ -29,6 +29,7 @@ import {
   randomId,
   readStorageAsync,
   readStorageSync,
+  removeStorageSync,
   resolveBrowserStorageAdapter,
   resolveCookieStorageAdapter,
   sanitizeProperties,
@@ -456,9 +457,23 @@ export class AnalyticsClient {
       return;
     }
 
+    const wasFullTrackingActive = this.isFullTrackingActive();
+    const previousSessionId = this.sessionId;
     this.fullTrackingConsentGranted = granted;
     if ((options.persist ?? true) && this.persistConsentState) {
       this.writePersistedConsent(this.configuredStorage, granted);
+    }
+    if (!granted && wasFullTrackingActive) {
+      removeStorageSync(this.configuredStorage, DEVICE_ID_KEY);
+      removeStorageSync(this.configuredStorage, SESSION_ID_KEY);
+      removeStorageSync(this.configuredStorage, LAST_SEEN_KEY);
+      removeStorageSync(this.configuredStorage, `${SESSION_EVENT_SEQ_PREFIX}${previousSessionId}`);
+      removeStorageSync(this.configuredStorage, ONBOARDING_STEP_VIEW_STATE_KEY);
+      this.anonId = randomId();
+      this.sessionId = randomId();
+      this.sessionEventSeq = 0;
+      this.inMemoryLastSeenMs = Date.now();
+      this.resetSessionScopedDedupeState();
     }
     this.applyIdentityTrackingState();
   }
@@ -2071,6 +2086,16 @@ export class AnalyticsClient {
     writeStorageSync(this.storage, DEVICE_ID_KEY, this.anonId);
     writeStorageSync(this.storage, SESSION_ID_KEY, this.sessionId);
     writeStorageSync(this.storage, LAST_SEEN_KEY, String(this.inMemoryLastSeenMs));
+  }
+
+  private resetSessionScopedDedupeState(): void {
+    this.onboardingStepViewStateSessionId = null;
+    this.onboardingStepViewsSeen = new Set<string>();
+    this.onboardingScreenStepViewOverlapSessionId = null;
+    this.onboardingStepViewsSeenAtMs = new Map<string, number>();
+    this.lastScreenViewDedupeSessionId = null;
+    this.lastScreenViewDedupeKey = null;
+    this.lastScreenViewDedupeTsMs = 0;
   }
 
   private getEventUserId(): string | null {
