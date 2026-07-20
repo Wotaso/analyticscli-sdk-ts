@@ -378,6 +378,8 @@ export type AnalyticsClientOptions = {
   /**
    * Initial consent state for identity persistence when `identityTrackingMode='consent_gated'`.
    * Defaults to `false`.
+   * Revoking full-tracking consent removes SDK identity/session keys from configured storage
+   * and rotates in-memory identifiers.
    */
   initialFullTrackingConsentGranted?: boolean | null;
   /**

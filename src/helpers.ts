@@ -106,6 +106,26 @@ export const writeStorageSync = (
   }
 };
 
+export const removeStorageSync = (
+  storage: AnalyticsStorageAdapter | null,
+  key: string,
+): void => {
+  if (!storage?.removeItem) {
+    return;
+  }
+
+  try {
+    const result = storage.removeItem(key);
+    if (isPromiseLike<void>(result)) {
+      void result.catch(() => {
+        // ignore async storage failures in private mode/server environment
+      });
+    }
+  } catch {
+    // ignore storage failures in private mode/server environment
+  }
+};
+
 const readTrimmedString = (value: unknown): string | undefined => {
   if (typeof value !== 'string') {
     return undefined;
