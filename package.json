@@ -5,8 +5,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Wotaso/analyticscli-monorepo.git",
-    "directory": "packages/sdk-ts"
+    "url": "https://github.com/Wotaso/analyticscli-sdk-ts"
   },
   "type": "module",
   "main": "dist/index.cjs",
