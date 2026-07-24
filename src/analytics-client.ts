@@ -44,6 +44,11 @@ import type {
   FeedbackMetadata,
   FeedbackSubmissionInput,
   FeedbackSubmissionResult,
+  AnalyticsDropDiagnostic,
+  AnalyticsDropHandler,
+  AnalyticsDropReason,
+  AnalyticsFlushOptions,
+  AnalyticsFlushResult,
   AnalyticsIngestError,
   AnalyticsIngestErrorHandler,
   AnalyticsStorageAdapter,
@@ -67,6 +72,9 @@ import type {
 const DEFAULT_CONSENT_STORAGE_KEY = 'analyticscli:consent:v1';
 const DEFAULT_FEEDBACK_SERVICE_URL = 'https://api.analyticscli.com';
 const AUTH_FAILURE_FLUSH_PAUSE_MS = 60_000;
+const DEFAULT_MAX_QUEUE_SIZE = 1000;
+const MAX_CONFIGURED_QUEUE_SIZE = 100_000;
+const DEFAULT_FLUSH_ALL_TIMEOUT_MS = 10_000;
 
 const resolveDefaultOsNameFromPlatform = (platform: string | undefined): string | undefined => {
   if (!platform) {
@@ -100,6 +108,7 @@ type IngestErrorBody = {
 type IngestSendErrorInput = {
   message: string;
   retryable: boolean;
+  timedOut?: boolean;
   attempts: number;
   status?: number;
   errorCode?: string;
@@ -116,8 +125,20 @@ type BrowserLifecycleHandler = {
   handler: EventListener;
 };
 
+type DeferredEvent = {
+  eventName: string;
+  action: () => void;
+};
+
+type PreparedIngestBatch = {
+  events: QueuedEvent[];
+  payload: IngestBatch | null;
+  serializedBody: string | null;
+};
+
 class IngestSendError extends Error {
   public readonly retryable: boolean;
+  public readonly timedOut: boolean;
   public readonly attempts: number;
   public readonly status?: number;
   public readonly errorCode?: string;
@@ -128,6 +149,7 @@ class IngestSendError extends Error {
     super(input.message);
     this.name = 'IngestSendError';
     this.retryable = input.retryable;
+    this.timedOut = input.timedOut ?? false;
     this.attempts = input.attempts;
     this.status = input.status;
     this.errorCode = input.errorCode;
@@ -144,10 +166,12 @@ export class AnalyticsClient {
   private readonly hasIngestConfig: boolean;
   private readonly endpoint: string;
   private readonly batchSize: number;
+  private readonly maxQueueSize: number;
   private readonly flushIntervalMs: number;
   private readonly maxRetries: number;
   private readonly debug: boolean;
   private readonly onIngestError: AnalyticsIngestErrorHandler | null;
+  private readonly onEventsDropped: AnalyticsDropHandler | null;
   private readonly platform: string | undefined;
   private readonly projectSurface: string | undefined;
   private readonly appVersion: string | undefined;
@@ -174,7 +198,9 @@ export class AnalyticsClient {
 
   private queue: QueuedEvent[] = [];
   private flushTimer: ReturnType<typeof setInterval> | null = null;
-  private isFlushing = false;
+  private activeFlushPromise: Promise<void> | null = null;
+  private activeFlushAbortController: AbortController | null = null;
+  private inFlightBatch: QueuedEvent[] = [];
   private consentGranted = true;
   private fullTrackingConsentGranted = false;
   private userId: string | null = null;
@@ -183,7 +209,7 @@ export class AnalyticsClient {
   private sessionEventSeq = 0;
   private inMemoryLastSeenMs = Date.now();
   private hydrationCompleted = false;
-  private deferredEventsBeforeHydration: Array<() => void> = [];
+  private deferredEventsBeforeHydration: DeferredEvent[] = [];
   private onboardingStepViewStateSessionId: string | null = null;
   private onboardingStepViewsSeen = new Set<string>();
   private onboardingScreenStepViewOverlapSessionId: string | null = null;
@@ -192,6 +218,8 @@ export class AnalyticsClient {
   private lastScreenViewDedupeKey: string | null = null;
   private lastScreenViewDedupeTsMs = 0;
   private flushPausedUntilMs = 0;
+  private retryableFailureCount = 0;
+  private flushTimeoutCount = 0;
 
   constructor(options: AnalyticsClientOptions) {
     const normalizedOptions = this.normalizeOptions(options);
@@ -204,9 +232,15 @@ export class AnalyticsClient {
     this.endpoint = (
       this.readRequiredStringOption(normalizedOptions.endpoint) || DEFAULT_COLLECTOR_ENDPOINT
     ).replace(/\/$/, '');
-    this.batchSize = Math.min(
-      normalizedOptions.batchSize ?? 20,
+    this.batchSize = this.normalizePositiveIntegerOption(
+      normalizedOptions.batchSize,
+      20,
       DEFAULT_INGEST_LIMITS.maxBatchSize,
+    );
+    this.maxQueueSize = this.normalizePositiveIntegerOption(
+      normalizedOptions.maxQueueSize,
+      DEFAULT_MAX_QUEUE_SIZE,
+      MAX_CONFIGURED_QUEUE_SIZE,
     );
     this.flushIntervalMs = normalizedOptions.flushIntervalMs ?? 5000;
     this.maxRetries = normalizedOptions.maxRetries ?? 4;
@@ -214,6 +248,10 @@ export class AnalyticsClient {
     this.onIngestError =
       typeof normalizedOptions.onIngestError === 'function'
         ? normalizedOptions.onIngestError
+        : null;
+    this.onEventsDropped =
+      typeof normalizedOptions.onEventsDropped === 'function'
+        ? normalizedOptions.onEventsDropped
         : null;
     this.platform =
       this.normalizePlatformOption(normalizedOptions.platform) ?? detectDefaultPlatform();
@@ -317,6 +355,7 @@ export class AnalyticsClient {
       this.setFullTrackingConsent(false, options);
     }
     if (!granted) {
+      this.abortActiveFlush();
       this.queue = [];
       this.deferredEventsBeforeHydration = [];
     }
@@ -361,7 +400,7 @@ export class AnalyticsClient {
     }
 
     if (this.shouldDeferEventsUntilHydrated()) {
-      this.deferEventUntilHydrated(() => {
+      this.deferEventUntilHydrated('session_start', () => {
         this.enqueueInitialSessionStart();
       });
       return;
@@ -405,9 +444,9 @@ export class AnalyticsClient {
       return;
     }
 
-    const normalizedTraits = this.cloneProperties(traits);
+    const normalizedTraits = sanitizeProperties(traits);
     if (this.shouldDeferEventsUntilHydrated()) {
-      this.deferEventUntilHydrated(() => {
+      this.deferEventUntilHydrated('identify', () => {
         this.identify(normalizedUserId, normalizedTraits);
       });
       return;
@@ -506,8 +545,8 @@ export class AnalyticsClient {
     }
 
     if (this.shouldDeferEventsUntilHydrated()) {
-      const deferredProperties = this.cloneProperties(properties);
-      this.deferEventUntilHydrated(() => {
+      const deferredProperties = sanitizeProperties(properties);
+      this.deferEventUntilHydrated(eventName, () => {
         this.track(eventName, deferredProperties);
       });
       return;
@@ -811,8 +850,8 @@ export class AnalyticsClient {
     }
 
     if (this.shouldDeferEventsUntilHydrated()) {
-      const deferredProperties = this.cloneProperties(properties);
-      this.deferEventUntilHydrated(() => {
+      const deferredProperties = sanitizeProperties(properties);
+      this.deferEventUntilHydrated(`screen:${normalizedScreenName}`, () => {
         this.screen(normalizedScreenName, deferredProperties);
       });
       return;
@@ -1009,42 +1048,118 @@ export class AnalyticsClient {
   /**
    * Flushes current event queue to the ingest endpoint.
    */
-  public async flush(): Promise<void> {
+  public flush(): Promise<void> {
+    return this.startFlush();
+  }
+
+  /**
+   * Drains all currently queued events, one bounded ingest batch at a time.
+   *
+   * Unlike `flush()`, this keeps flushing until the queue is empty or `timeoutMs`
+   * elapses. Events from retryable failures remain queued; permanently rejected
+   * batches are dropped and surfaced through delivery diagnostics.
+   */
+  public async flushAll(options: AnalyticsFlushOptions = {}): Promise<AnalyticsFlushResult> {
+    const timeoutMs = this.normalizeNonNegativeIntegerOption(
+      options.timeoutMs,
+      DEFAULT_FLUSH_ALL_TIMEOUT_MS,
+    );
+    const deadlineMs = Date.now() + timeoutMs;
+
+    while (this.getPendingEventCount() > 0) {
+      if (Date.now() >= deadlineMs) {
+        this.abortActiveFlush();
+        return this.createFlushResult('timed_out');
+      }
+
+      if (!this.activeFlushPromise && Date.now() < this.flushPausedUntilMs) {
+        return this.createFlushResult('auth_pause');
+      }
+
+      const retryableFailuresBeforeFlush = this.retryableFailureCount;
+      const flushTimeoutsBeforeFlush = this.flushTimeoutCount;
+      const flushCompleted = await this.waitForPromiseUntil(
+        this.startFlush(deadlineMs),
+        deadlineMs,
+      );
+      if (!flushCompleted) {
+        this.abortActiveFlush();
+        return this.createFlushResult('timed_out');
+      }
+      if (this.flushTimeoutCount > flushTimeoutsBeforeFlush) {
+        return this.createFlushResult('timed_out');
+      }
+      if (this.retryableFailureCount > retryableFailuresBeforeFlush) {
+        return this.createFlushResult('retryable_failure');
+      }
+    }
+
+    return this.createFlushResult('drained');
+  }
+
+  private startFlush(deadlineMs?: number): Promise<void> {
+    if (this.activeFlushPromise) {
+      return this.activeFlushPromise;
+    }
+
+    const operation = this.performFlush(deadlineMs).finally(() => {
+      this.activeFlushPromise = null;
+    });
+    this.activeFlushPromise = operation;
+    return operation;
+  }
+
+  private async performFlush(deadlineMs?: number): Promise<void> {
     if (!this.hydrationCompleted && this.deferredEventsBeforeHydration.length > 0) {
       await this.hydrationPromise;
     }
 
-    if (this.queue.length === 0 || this.isFlushing || !this.consentGranted) {
+    if (this.queue.length === 0 || !this.consentGranted) {
       return;
     }
     if (Date.now() < this.flushPausedUntilMs) {
       return;
     }
 
-    this.isFlushing = true;
-    const batch = this.queue.splice(0, this.batchSize);
-
-    const payload: IngestBatch = {
-      sentAt: nowIso(),
-      events: batch,
-    };
-
-    const validation = validateIngestBatch(payload);
-    if (!validation.success) {
-      this.log('Validation failed, dropping batch', validation.reason);
-      this.isFlushing = false;
+    const candidates = this.queue.splice(0, this.batchSize);
+    const prepared = this.prepareIngestBatch(candidates);
+    if (!prepared.payload || !prepared.serializedBody || prepared.events.length === 0) {
       return;
     }
 
+    this.inFlightBatch = prepared.events;
     try {
-      await this.sendWithRetry(payload);
+      await this.sendWithRetry(prepared.serializedBody, deadlineMs);
       this.flushPausedUntilMs = 0;
     } catch (error) {
-      this.queue = [...batch, ...this.queue];
+      if (!this.consentGranted) {
+        this.log('Discarding in-flight batch after event collection consent was revoked');
+        return;
+      }
+
       const ingestError = this.toIngestSendError(error);
+      if (ingestError.retryable) {
+        if (ingestError.timedOut) {
+          this.flushTimeoutCount += 1;
+        } else {
+          this.retryableFailureCount += 1;
+        }
+        this.requeueAtFront(prepared.events);
+      } else {
+        this.reportDroppedEvents(
+          prepared.events,
+          'permanent_ingest_error',
+          `Collector permanently rejected ${prepared.events.length} event(s).`,
+          {
+            status: ingestError.status,
+            errorCode: ingestError.errorCode,
+            requestId: ingestError.requestId,
+          },
+        );
+      }
       const diagnostics = this.createIngestDiagnostics(
         ingestError,
-        batch.length,
+        prepared.events.length,
         this.queue.length,
       );
       if (ingestError.status === 401 || ingestError.status === 403) {
@@ -1054,10 +1169,15 @@ export class AnalyticsClient {
           retryAfterMs: AUTH_FAILURE_FLUSH_PAUSE_MS,
         });
       }
-      this.log('Send failed permanently, requeueing batch', diagnostics);
+      this.log(
+        ingestError.retryable
+          ? 'Send failed after retries; batch remains queued'
+          : 'Send failed permanently; batch was dropped',
+        diagnostics,
+      );
       this.reportIngestError(diagnostics);
     } finally {
-      this.isFlushing = false;
+      this.inFlightBatch = [];
     }
   }
 
@@ -1078,13 +1198,33 @@ export class AnalyticsClient {
     }
   }
 
+  /**
+   * Stops timers/listeners and then drains queued events within a bounded timeout.
+   */
+  public async shutdownAsync(
+    options: AnalyticsFlushOptions = {},
+  ): Promise<AnalyticsFlushResult> {
+    this.shutdown();
+    return this.flushAll(options);
+  }
+
   private enqueue(event: QueuedEvent): void {
     if (!this.consentGranted) {
       return;
     }
 
     this.queue.push(event);
-    if (this.queue.length >= this.batchSize) {
+    const overflow = this.queue.length - this.maxQueueSize;
+    if (overflow > 0) {
+      const dropped = this.queue.splice(0, overflow);
+      this.reportDroppedEvents(
+        dropped,
+        'queue_overflow',
+        `In-memory queue reached maxQueueSize=${this.maxQueueSize}; oldest event(s) were evicted.`,
+      );
+    }
+
+    if (this.queue.length >= Math.min(this.batchSize, this.maxQueueSize)) {
       this.scheduleFlush();
     }
   }
@@ -1095,10 +1235,29 @@ export class AnalyticsClient {
     });
   }
 
-  private async sendWithRetry(payload: IngestBatch): Promise<void> {
+  private async sendWithRetry(serializedBody: string, deadlineMs?: number): Promise<void> {
     let delay = 250;
 
     for (let attempt = 1; attempt <= this.maxRetries + 1; attempt += 1) {
+      if (deadlineMs !== undefined && Date.now() >= deadlineMs) {
+        throw new IngestSendError({
+          message: 'ingest flush timed out',
+          retryable: true,
+          timedOut: true,
+          attempts: Math.max(1, attempt - 1),
+        });
+      }
+
+      const controller =
+        typeof AbortController === 'function' ? new AbortController() : null;
+      this.activeFlushAbortController = controller;
+      const remainingMs =
+        deadlineMs === undefined ? null : Math.max(0, deadlineMs - Date.now());
+      const timeout =
+        controller && remainingMs !== null
+          ? setTimeout(() => controller.abort(), remainingMs)
+          : null;
+
       try {
         const response = await fetch(`${this.endpoint}/v1/collect`, {
           method: 'POST',
@@ -1106,8 +1265,9 @@ export class AnalyticsClient {
             'content-type': 'application/json',
             'x-api-key': this.apiKey,
           },
-          body: JSON.stringify(payload),
+          body: serializedBody,
           keepalive: true,
+          ...(controller ? { signal: controller.signal } : {}),
         });
 
         if (!response.ok) {
@@ -1116,6 +1276,17 @@ export class AnalyticsClient {
 
         return;
       } catch (error) {
+        const deadlineReached = deadlineMs !== undefined && Date.now() >= deadlineMs;
+        if (deadlineReached) {
+          throw new IngestSendError({
+            message: 'ingest flush timed out',
+            retryable: true,
+            timedOut: true,
+            attempts: attempt,
+            cause: error,
+          });
+        }
+
         const normalized = this.toIngestSendError(error, attempt);
         const finalAttempt = attempt >= this.maxRetries + 1;
         this.log('Ingest attempt failed', {
@@ -1132,10 +1303,317 @@ export class AnalyticsClient {
           throw normalized;
         }
 
-        await new Promise((resolve) => setTimeout(resolve, delay));
+        const retryDelay =
+          deadlineMs === undefined ? delay : Math.min(delay, Math.max(0, deadlineMs - Date.now()));
+        if (retryDelay <= 0) {
+          throw new IngestSendError({
+            message: 'ingest flush timed out',
+            retryable: true,
+            timedOut: true,
+            attempts: attempt,
+            cause: error,
+          });
+        }
+        await this.wait(retryDelay);
         delay *= 2;
+      } finally {
+        if (timeout) {
+          clearTimeout(timeout);
+        }
+        if (this.activeFlushAbortController === controller) {
+          this.activeFlushAbortController = null;
+        }
       }
     }
+  }
+
+  private prepareIngestBatch(candidates: QueuedEvent[]): PreparedIngestBatch {
+    const sentAt = nowIso();
+    const accepted: QueuedEvent[] = [];
+    let serializedBody: string | null = null;
+
+    for (let index = 0; index < candidates.length; index += 1) {
+      const event = candidates[index];
+      if (!event) {
+        continue;
+      }
+
+      const singlePayload: IngestBatch = {
+        sentAt,
+        events: [event],
+      };
+      const validation = validateIngestBatch(singlePayload);
+      if (!validation.success) {
+        this.reportDroppedEvents(
+          [event],
+          'invalid_event',
+          `Event failed local ingest validation: ${validation.reason}.`,
+        );
+        continue;
+      }
+
+      const singleSerialization = this.trySerializeIngestPayload(singlePayload);
+      if (!singleSerialization.success) {
+        this.reportDroppedEvents(
+          [event],
+          'serialization_error',
+          'Event could not be safely serialized as JSON.',
+        );
+        continue;
+      }
+
+      if (
+        this.calculateUtf8ByteLength(singleSerialization.body) >
+        DEFAULT_INGEST_LIMITS.maxPayloadBytes
+      ) {
+        this.reportDroppedEvents(
+          [event],
+          'payload_too_large',
+          `Event exceeds the ${DEFAULT_INGEST_LIMITS.maxPayloadBytes}-byte ingest limit.`,
+        );
+        continue;
+      }
+
+      const nextEvents = [...accepted, event];
+      const nextPayload: IngestBatch = {
+        sentAt,
+        events: nextEvents,
+      };
+      const nextSerialization =
+        accepted.length === 0
+          ? singleSerialization
+          : this.trySerializeIngestPayload(nextPayload);
+      if (!nextSerialization.success) {
+        this.reportDroppedEvents(
+          [event],
+          'serialization_error',
+          'Event could not be safely combined into an ingest batch.',
+        );
+        continue;
+      }
+
+      if (
+        this.calculateUtf8ByteLength(nextSerialization.body) >
+        DEFAULT_INGEST_LIMITS.maxPayloadBytes
+      ) {
+        this.requeueAtFront(candidates.slice(index));
+        break;
+      }
+
+      accepted.push(event);
+      serializedBody = nextSerialization.body;
+    }
+
+    if (accepted.length === 0 || !serializedBody) {
+      return {
+        events: [],
+        payload: null,
+        serializedBody: null,
+      };
+    }
+
+    const payload: IngestBatch = {
+      sentAt,
+      events: accepted,
+    };
+    const validation = validateIngestBatch(payload);
+    if (!validation.success) {
+      this.reportDroppedEvents(
+        accepted,
+        'invalid_event',
+        `Prepared batch failed local ingest validation: ${validation.reason}.`,
+      );
+      return {
+        events: [],
+        payload: null,
+        serializedBody: null,
+      };
+    }
+
+    return {
+      events: accepted,
+      payload,
+      serializedBody,
+    };
+  }
+
+  private trySerializeIngestPayload(
+    payload: IngestBatch,
+  ): { success: true; body: string } | { success: false } {
+    try {
+      return {
+        success: true,
+        body: JSON.stringify(payload),
+      };
+    } catch {
+      return { success: false };
+    }
+  }
+
+  private calculateUtf8ByteLength(value: string): number {
+    let byteLength = 0;
+
+    for (let index = 0; index < value.length; index += 1) {
+      const codeUnit = value.charCodeAt(index);
+      if (codeUnit <= 0x7f) {
+        byteLength += 1;
+      } else if (codeUnit <= 0x7ff) {
+        byteLength += 2;
+      } else if (
+        codeUnit >= 0xd800 &&
+        codeUnit <= 0xdbff &&
+        index + 1 < value.length &&
+        value.charCodeAt(index + 1) >= 0xdc00 &&
+        value.charCodeAt(index + 1) <= 0xdfff
+      ) {
+        byteLength += 4;
+        index += 1;
+      } else {
+        byteLength += 3;
+      }
+    }
+
+    return byteLength;
+  }
+
+  private requeueAtFront(events: QueuedEvent[]): void {
+    if (events.length === 0) {
+      return;
+    }
+
+    this.queue = [...events, ...this.queue];
+    const overflow = this.queue.length - this.maxQueueSize;
+    if (overflow <= 0) {
+      return;
+    }
+
+    const dropped = this.queue.splice(this.maxQueueSize, overflow);
+    this.reportDroppedEvents(
+      dropped,
+      'queue_overflow',
+      `Retry preservation exceeded maxQueueSize=${this.maxQueueSize}; newest queued event(s) were evicted.`,
+    );
+  }
+
+  private reportDroppedEvents(
+    events: QueuedEvent[],
+    reason: AnalyticsDropReason,
+    message: string,
+    metadata: {
+      status?: number;
+      errorCode?: string;
+      requestId?: string;
+    } = {},
+  ): void {
+    if (events.length === 0) {
+      return;
+    }
+
+    this.reportDroppedEventNames(
+      events.map((event) => event.eventName),
+      reason,
+      message,
+      metadata,
+    );
+  }
+
+  private reportDroppedEventNames(
+    eventNames: string[],
+    reason: AnalyticsDropReason,
+    message: string,
+    metadata: {
+      status?: number;
+      errorCode?: string;
+      requestId?: string;
+    } = {},
+  ): void {
+    if (eventNames.length === 0) {
+      return;
+    }
+
+    const diagnostic: AnalyticsDropDiagnostic = {
+      name: 'AnalyticsDropDiagnostic',
+      reason,
+      message,
+      droppedCount: eventNames.length,
+      eventNames: eventNames.map(
+        (eventName) => this.readRequiredStringOption(eventName).slice(0, 100) || 'unknown',
+      ),
+      queueSize: this.queue.length,
+      maxQueueSize: this.maxQueueSize,
+      status: metadata.status,
+      errorCode: metadata.errorCode,
+      requestId: metadata.requestId,
+      timestamp: nowIso(),
+    };
+    this.log('Events dropped', diagnostic);
+
+    if (!this.onEventsDropped) {
+      return;
+    }
+
+    try {
+      this.onEventsDropped(diagnostic);
+    } catch (callbackError) {
+      this.log('onEventsDropped callback threw', callbackError);
+    }
+  }
+
+  private getPendingEventCount(): number {
+    return (
+      this.deferredEventsBeforeHydration.length +
+      this.queue.length +
+      this.inFlightBatch.length
+    );
+  }
+
+  private abortActiveFlush(): void {
+    try {
+      this.activeFlushAbortController?.abort();
+    } catch {
+      // AbortController implementations can vary across browser/RN runtimes.
+    }
+  }
+
+  private createFlushResult(
+    stopReason: AnalyticsFlushResult['reason'],
+  ): AnalyticsFlushResult {
+    const remainingEvents = this.getPendingEventCount();
+    const completed = remainingEvents === 0;
+    return {
+      completed,
+      timedOut: stopReason === 'timed_out' && !completed,
+      reason: completed ? 'drained' : stopReason,
+      remainingEvents,
+    };
+  }
+
+  private async waitForPromiseUntil(
+    promise: Promise<void>,
+    deadlineMs: number,
+  ): Promise<boolean> {
+    const remainingMs = deadlineMs - Date.now();
+    if (remainingMs <= 0) {
+      return false;
+    }
+
+    let timeout: ReturnType<typeof setTimeout> | null = null;
+    try {
+      return await Promise.race([
+        promise.then(() => true),
+        new Promise<boolean>((resolve) => {
+          timeout = setTimeout(() => resolve(false), remainingMs);
+        }),
+      ]);
+    } finally {
+      if (timeout) {
+        clearTimeout(timeout);
+      }
+    }
+  }
+
+  private wait(delayMs: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, delayMs));
   }
 
   private async createHttpIngestSendError(
@@ -1188,6 +1666,7 @@ export class AnalyticsClient {
       return new IngestSendError({
         message: error.message,
         retryable: error.retryable,
+        timedOut: error.timedOut,
         attempts: resolvedAttempts,
         status: error.status,
         errorCode: error.errorCode,
@@ -1450,14 +1929,19 @@ export class AnalyticsClient {
     );
   }
 
-  private deferEventUntilHydrated(action: () => void): void {
-    const maxDeferredEvents = 1000;
-    if (this.deferredEventsBeforeHydration.length >= maxDeferredEvents) {
-      this.deferredEventsBeforeHydration.shift();
-      this.log('Dropping oldest deferred pre-hydration event to cap memory usage');
+  private deferEventUntilHydrated(eventName: string, action: () => void): void {
+    if (this.deferredEventsBeforeHydration.length >= this.maxQueueSize) {
+      const dropped = this.deferredEventsBeforeHydration.shift();
+      if (dropped) {
+        this.reportDroppedEventNames(
+          [dropped.eventName],
+          'queue_overflow',
+          `Pre-hydration queue reached maxQueueSize=${this.maxQueueSize}; oldest event was evicted.`,
+        );
+      }
     }
 
-    this.deferredEventsBeforeHydration.push(action);
+    this.deferredEventsBeforeHydration.push({ eventName, action });
   }
 
   private drainDeferredEventsAfterHydration(): void {
@@ -1468,21 +1952,13 @@ export class AnalyticsClient {
     const deferred = this.deferredEventsBeforeHydration;
     this.deferredEventsBeforeHydration = [];
 
-    for (const action of deferred) {
+    for (const entry of deferred) {
       try {
-        action();
+        entry.action();
       } catch (error) {
         this.log('Failed to emit deferred pre-hydration event', error);
       }
     }
-  }
-
-  private cloneProperties(properties?: EventProperties): EventProperties | undefined {
-    if (!properties) {
-      return undefined;
-    }
-
-    return { ...properties };
   }
 
   private detectAsyncStorageReads(): boolean {
@@ -2191,6 +2667,27 @@ export class AnalyticsClient {
     }
 
     return options as Partial<AnalyticsClientOptions>;
+  }
+
+  private normalizePositiveIntegerOption(
+    value: unknown,
+    fallback: number,
+    maximum: number,
+  ): number {
+    if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
+      return fallback;
+    }
+    return Math.min(maximum, Math.max(1, Math.floor(value)));
+  }
+
+  private normalizeNonNegativeIntegerOption(value: unknown, fallback: number): number {
+    if (value === null || value === undefined) {
+      return fallback;
+    }
+    if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
+      return fallback;
+    }
+    return Math.floor(value);
   }
 
   private readRequiredStringOption(value: unknown): string {

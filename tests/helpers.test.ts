@@ -297,3 +297,193 @@ test('property and survey helpers normalize payload values', () => {
   assert.equal(toTextLengthBucket(''), 'empty');
   assert.equal(toTextLengthBucket('hello world'), '11_30');
 });
+
+test('sanitizeProperties recursively removes case- and separator-insensitive PII and secrets', () => {
+  const input = {
+    EMAIL: 'person@example.com',
+    'api-key': 'secret-key',
+    checkout: {
+      plan: 'pro',
+      customer: {
+        'phone-number': '+49 123',
+        first_name: 'Ada',
+        cohort: 'founder',
+      },
+      credentials: {
+        Authorization: 'Bearer secret',
+        refresh_token: 'refresh-secret',
+        provider: 'example',
+      },
+    },
+    items: [
+      { productId: 'pro-monthly', cardNumber: '4111111111111111' },
+      { productId: 'team-monthly', currency: 'EUR', device_model: 'iPhone16,2' },
+    ],
+  };
+
+  assert.deepEqual(sanitizeProperties(input), {
+    checkout: {
+      plan: 'pro',
+      customer: {
+        cohort: 'founder',
+      },
+      credentials: {
+        provider: 'example',
+      },
+    },
+    items: [
+      { productId: 'pro-monthly' },
+      { productId: 'team-monthly', currency: 'EUR' },
+    ],
+  });
+
+  // Sanitization returns a safe copy and never mutates host-app event objects.
+  assert.equal(input.checkout.customer.first_name, 'Ada');
+  assert.equal(input.items[0]?.cardNumber, '4111111111111111');
+});
+
+test('sanitizeProperties blocks the complete canonical client privacy-key policy', () => {
+  const blockedKeys = [
+    'deviceModel',
+    'deviceManufacturer',
+    'deviceType',
+    'locale',
+    'timezone',
+    'networkType',
+    'carrier',
+    'installSource',
+    'email',
+    'emailAddress',
+    'phone',
+    'phoneNumber',
+    'firstName',
+    'lastName',
+    'fullName',
+    'address',
+    'streetAddress',
+    'ipAddress',
+    'dateOfBirth',
+    'ssn',
+    'socialSecurityNumber',
+    'creditCard',
+    'cardNumber',
+    'cvv',
+    'cvc',
+    'iban',
+    'bankAccount',
+    'password',
+    'secret',
+    'token',
+    'accessToken',
+    'refreshToken',
+    'idToken',
+    'sessionToken',
+    'authorization',
+    'apiKey',
+  ];
+  const properties = Object.fromEntries(
+    blockedKeys.map((key) => [key, `blocked:${key}`]),
+  );
+
+  assert.deepEqual(sanitizeProperties(properties), {});
+});
+
+test('sanitizeProperties preserves legitimate product analytics keys', () => {
+  const productProperties = {
+    plan: 'pro',
+    currency: 'EUR',
+    tokenCount: 42,
+    tokenType: 'input',
+    passwordResetCompleted: true,
+    apiKeyCreated: true,
+    authorizationMethod: 'oauth',
+    emailOptIn: false,
+    secretFeatureEnabled: true,
+    cardLast4Present: true,
+    accessTokenExpiresAt: '2026-07-24T00:00:00.000Z',
+  };
+
+  assert.deepEqual(sanitizeProperties(productProperties), productProperties);
+});
+
+test('sanitizeProperties preserves JSON-compatible value representations and re-sanitizes toJSON output', () => {
+  const occurredAt = new Date('2026-07-23T12:00:00.000Z');
+  const customValue = {
+    toJSON: () => ({
+      state: 'ready',
+      api_key: 'must-not-escape-through-to-json',
+    }),
+  };
+
+  assert.deepEqual(
+    sanitizeProperties({
+      occurredAt,
+      customValue,
+    }),
+    {
+      occurredAt: '2026-07-23T12:00:00.000Z',
+      customValue: {
+        state: 'ready',
+      },
+    },
+  );
+});
+
+test('sanitizeProperties replaces cycles and excessive depth with null', () => {
+  const cyclic: Record<string, unknown> = {
+    source: 'checkout',
+  };
+  const cyclicItems: unknown[] = [{ plan: 'pro' }];
+  cyclic.nested = { back: cyclic };
+  cyclicItems.push(cyclicItems);
+  cyclic.items = cyclicItems;
+
+  assert.deepEqual(sanitizeProperties(cyclic), {
+    source: 'checkout',
+    nested: { back: null },
+    items: [{ plan: 'pro' }, null],
+  });
+
+  const deep: Record<string, unknown> = {};
+  let cursor = deep;
+  for (let level = 0; level <= 21; level += 1) {
+    const child: Record<string, unknown> = { level };
+    cursor.child = child;
+    cursor = child;
+  }
+
+  let sanitizedCursor = sanitizeProperties(deep);
+  for (let level = 0; level < 20; level += 1) {
+    sanitizedCursor = sanitizedCursor.child as Record<string, unknown>;
+  }
+  assert.deepEqual(sanitizedCursor, {
+    level: null,
+    child: null,
+  });
+});
+
+test('sanitizeProperties tolerates throwing getters without reading blocked values', () => {
+  let blockedGetterWasRead = false;
+  const nested: Record<string, unknown> = {};
+  Object.defineProperty(nested, 'PASSWORD', {
+    enumerable: true,
+    get() {
+      blockedGetterWasRead = true;
+      throw new Error('blocked getter must not be read');
+    },
+  });
+  Object.defineProperty(nested, 'safeMetric', {
+    enumerable: true,
+    get() {
+      throw new Error('host object getter failed');
+    },
+  });
+
+  assert.doesNotThrow(() => sanitizeProperties({ nested }));
+  assert.deepEqual(sanitizeProperties({ nested }), {
+    nested: {
+      safeMetric: null,
+    },
+  });
+  assert.equal(blockedGetterWasRead, false);
+});

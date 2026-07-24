@@ -294,7 +294,7 @@ export type AnalyticsIngestError = {
    */
   batchSize: number;
   /**
-   * Current queue size after requeue.
+   * Current queue size after the failed batch was either requeued or dropped.
    */
   queueSize: number;
   /**
@@ -304,6 +304,62 @@ export type AnalyticsIngestError = {
 };
 
 export type AnalyticsIngestErrorHandler = (error: AnalyticsIngestError) => void;
+
+export type AnalyticsDropReason =
+  | 'queue_overflow'
+  | 'invalid_event'
+  | 'serialization_error'
+  | 'payload_too_large'
+  | 'permanent_ingest_error';
+
+/**
+ * Payload-free delivery diagnostic emitted when the SDK intentionally drops events.
+ *
+ * Event properties and identifiers are deliberately omitted so this object can be
+ * forwarded to host-app monitoring without leaking analytics payload data.
+ */
+export type AnalyticsDropDiagnostic = {
+  name: 'AnalyticsDropDiagnostic';
+  reason: AnalyticsDropReason;
+  message: string;
+  droppedCount: number;
+  eventNames: string[];
+  queueSize: number;
+  maxQueueSize: number;
+  status?: number;
+  errorCode?: string;
+  requestId?: string;
+  timestamp: string;
+};
+
+export type AnalyticsDropHandler = (diagnostic: AnalyticsDropDiagnostic) => void;
+
+export type AnalyticsFlushOptions = {
+  /**
+   * Maximum time to spend draining the queue.
+   * Defaults to `10000`. Set to `0` to return immediately without waiting.
+   */
+  timeoutMs?: number | null;
+};
+
+export type AnalyticsFlushResult = {
+  /**
+   * `true` when no queued or in-flight events remain.
+   */
+  completed: boolean;
+  /**
+   * `true` when draining stopped because the configured timeout elapsed.
+   */
+  timedOut: boolean;
+  /**
+   * Why draining stopped.
+   */
+  reason: 'drained' | 'timed_out' | 'retryable_failure' | 'auth_pause';
+  /**
+   * Queued and in-flight event count when draining stopped.
+   */
+  remainingEvents: number;
+};
 
 export type SetConsentOptions = {
   /**
@@ -324,6 +380,13 @@ export type AnalyticsClientOptions = {
    */
   endpoint?: string | null;
   batchSize?: number | null;
+  /**
+   * Maximum number of events retained in memory.
+   *
+   * Defaults to `1000` and is capped at `100000`. When the queue is full, the
+   * oldest event is evicted so current product activity can still be observed.
+   */
+  maxQueueSize?: number | null;
   flushIntervalMs?: number | null;
   maxRetries?: number | null;
   /**
@@ -342,6 +405,11 @@ export type AnalyticsClientOptions = {
    * forward this structured metadata only and avoid attaching event payloads or raw identifiers.
    */
   onIngestError?: AnalyticsIngestErrorHandler | null;
+  /**
+   * Optional payload-free hook for events intentionally dropped because of queue
+   * pressure, invalid/oversize payloads, or permanent collector rejections.
+   */
+  onEventsDropped?: AnalyticsDropHandler | null;
   /**
    * Optional platform hint.
    * React Native/Expo: passing `Platform.OS` directly is supported.

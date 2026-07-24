@@ -154,6 +154,15 @@ const analytics = init({
   dedupeScreenViewsPerSession: true,
   dedupeOnboardingScreenStepViewOverlapsPerSession: true,
   screenViewDedupeWindowMs: 1200,
+  maxQueueSize: 1000,
+  onIngestError: (diagnostic) => {
+    // Forward payload-free delivery metadata to your monitoring provider.
+    console.warn(diagnostic);
+  },
+  onEventsDropped: (diagnostic) => {
+    // No event properties or identifiers are included in this diagnostic.
+    console.warn(diagnostic);
+  },
 });
 ```
 
@@ -175,6 +184,43 @@ window (default `1200` ms) and also applies to onboarding screen/step overlap de
 between onboarding route-level `screen:*` events and `onboarding:step_view`
 for the same step (default `true`).
 Neither setting dedupes paywall or purchase events.
+
+### Delivery reliability and graceful shutdown
+
+The in-memory event queue is bounded by `maxQueueSize` (default `1000`, maximum
+`100000`). If an offline or stalled app reaches the limit, the oldest queued
+events are evicted and an optional payload-free `onEventsDropped` diagnostic is
+emitted. The same limit applies while an async React Native storage adapter is
+still hydrating identity.
+
+Delivery behavior is intentionally failure-aware:
+
+- network errors, `408`, `425`, `429`, and `5xx` responses use the configured
+  retry policy and remain queued after retries are exhausted
+- permanent `4xx` responses are not retried or requeued forever; the rejected
+  batch is dropped and reported through `onIngestError` and `onEventsDropped`
+- invalid, non-serializable, or individually oversized events are isolated so
+  they cannot block valid events behind them
+- valid batches are split automatically to remain within the collector's
+  `128 KiB` payload limit
+
+`flush()` remains the low-latency one-batch API. At explicit app/process
+boundaries, use `flushAll()` or `shutdownAsync()` to drain every queued batch:
+
+```ts
+const result = await analytics.flushAll({ timeoutMs: 5000 });
+if (!result.completed) {
+  console.warn('Analytics queue was not fully drained', result);
+}
+
+// Removes timers/listeners first, then drains within the timeout.
+await analytics.shutdownAsync({ timeoutMs: 5000 });
+```
+
+`flushAll()` stops after a retryable collector failure instead of hot-looping;
+`result.reason` distinguishes `drained`, `timed_out`, `retryable_failure`, and
+`auth_pause`. The existing synchronous `shutdown()` remains available when the
+host cannot await cleanup.
 
 For paywall funnels with stable `source` + `paywallId`, create one tracker per
 flow context and reuse it:
@@ -283,6 +329,19 @@ In strict phase (and in `strict` mode):
 Managed web ingest note:
 - for `platform=web`, the hosted edge collector replaces incoming SDK identifiers with short-lived salted identifiers and clears incoming `userId`
 - use `projectSurface` for segmentation such as `landing`, `dashboard`, or `app`
+
+Property privacy defense-in-depth:
+
+- the SDK recursively removes known PII and secret keys before enqueueing,
+  including case/separator variants such as `E-MAIL`, `phone_number`,
+  `session-token`, `authorization`, and `api_key`
+- nested objects and arrays are sanitized; cycles and values deeper than 20
+  levels are replaced with `null`
+- matching is exact after normalization, so useful product fields such as
+  `emailOptIn`, `tokenCount`, `passwordResetCompleted`, and `apiKeyCreated`
+  remain available for analysis
+- this is a key-based safety net, not a replacement for avoiding PII in event
+  values; the hosted collector applies the same policy again server-side
 
 Runtime collection control APIs:
 - `analytics.getConsent()` -> current in-memory consent

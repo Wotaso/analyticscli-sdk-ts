@@ -374,13 +374,96 @@ export const combineStorageAdapters = (
   };
 };
 
+const MAX_PROPERTY_SANITIZATION_DEPTH = 20;
+
+const normalizePrivacyKey = (key: string): string => {
+  return key.replace(/[^a-z0-9]/gi, '').toLowerCase();
+};
+
+const RESERVED_PROPERTY_KEYS_NORMALIZED = new Set(
+  Array.from(RESERVED_PII_KEYS, normalizePrivacyKey),
+);
+
+const sanitizePropertyValue = (
+  value: unknown,
+  seen: WeakSet<object>,
+  depth: number,
+): unknown => {
+  if (depth > MAX_PROPERTY_SANITIZATION_DEPTH) {
+    return null;
+  }
+
+  if (value === null || typeof value !== 'object') {
+    return value;
+  }
+  if (seen.has(value)) {
+    return null;
+  }
+
+  seen.add(value);
+  try {
+    let toJSON: unknown;
+    try {
+      toJSON = (value as { toJSON?: unknown }).toJSON;
+    } catch {
+      toJSON = undefined;
+    }
+    if (typeof toJSON === 'function') {
+      try {
+        const replacement = toJSON.call(value);
+        if (replacement !== value) {
+          return sanitizePropertyValue(replacement, seen, depth + 1);
+        }
+      } catch {
+        return null;
+      }
+    }
+
+    if (Array.isArray(value)) {
+      try {
+        return value.map((item) => sanitizePropertyValue(item, seen, depth + 1));
+      } catch {
+        return null;
+      }
+    }
+
+    let keys: string[];
+    try {
+      keys = Object.keys(value);
+    } catch {
+      return null;
+    }
+
+    const entries: Array<[string, unknown]> = [];
+    for (const key of keys) {
+      if (RESERVED_PROPERTY_KEYS_NORMALIZED.has(normalizePrivacyKey(key))) {
+        continue;
+      }
+
+      let nestedValue: unknown;
+      try {
+        nestedValue = (value as Record<string, unknown>)[key];
+      } catch {
+        nestedValue = null;
+      }
+      entries.push([key, sanitizePropertyValue(nestedValue, seen, depth + 1)]);
+    }
+    return Object.fromEntries(entries);
+  } finally {
+    seen.delete(value);
+  }
+};
+
 export const sanitizeProperties = (properties: EventProperties | undefined): EventProperties => {
   if (!properties) {
     return {};
   }
 
-  const entries = Object.entries(properties).filter(([key]) => !RESERVED_PII_KEYS.has(key));
-  return Object.fromEntries(entries);
+  const sanitized = sanitizePropertyValue(properties, new WeakSet(), 0);
+  if (sanitized === null || typeof sanitized !== 'object' || Array.isArray(sanitized)) {
+    return {};
+  }
+  return sanitized as EventProperties;
 };
 
 export const toStableKey = (value: string | undefined): string | undefined => {

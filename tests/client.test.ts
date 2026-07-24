@@ -13,7 +13,7 @@ import {
   PAYWALL_EVENTS,
   PURCHASE_EVENTS,
 } from '../src/index.js';
-import type { AnalyticsIngestError } from '../src/index.js';
+import type { AnalyticsDropDiagnostic, AnalyticsIngestError } from '../src/index.js';
 
 const createMemoryStorage = (): Storage => {
   const map = new Map<string, string>();
@@ -168,6 +168,57 @@ test('track() flushes a valid ingest batch', async () => {
       assert.equal(onboardingStartEvent.properties?.identityQuality, 'ephemeral');
       assert.equal(onboardingStartEvent.properties?.identityPersistence, 'ephemeral');
       assert.equal(onboardingStartEvent.properties?.fullTrackingConsentGranted, false);
+    } finally {
+      client.shutdown();
+    }
+  });
+});
+
+test('track() recursively sanitizes nested PII and secret property keys before ingest', async () => {
+  await withMockedGlobals(async (calls) => {
+    const client = init({
+      apiKey: 'pi_live_privacy_filter',
+      endpoint: 'https://collector.analyticscli.com',
+      batchSize: 20,
+      flushIntervalMs: 60_000,
+      maxRetries: 0,
+    });
+
+    try {
+      client.track('checkout:started', {
+        checkout: {
+          plan: 'pro',
+          customer: {
+            'E-MAIL': 'person@example.com',
+            phone_number: '+49 123',
+            cohort: 'founder',
+          },
+        },
+        credentials: [
+          {
+            session_token: 'secret',
+            provider: 'example',
+          },
+        ],
+        tokenCount: 12,
+        apiKeyCreated: true,
+      });
+      await client.flush();
+
+      const payload = JSON.parse(String(calls[0]?.init?.body)) as {
+        events: Array<{ eventName: string; properties: Record<string, unknown> }>;
+      };
+      const event = payload.events.find((candidate) => candidate.eventName === 'checkout:started');
+      assert.ok(event);
+      assert.deepEqual(event.properties.checkout, {
+        plan: 'pro',
+        customer: {
+          cohort: 'founder',
+        },
+      });
+      assert.deepEqual(event.properties.credentials, [{ provider: 'example' }]);
+      assert.equal(event.properties.tokenCount, 12);
+      assert.equal(event.properties.apiKeyCreated, true);
     } finally {
       client.shutdown();
     }
@@ -1345,9 +1396,10 @@ test('debug logging is disabled by default and enabled with debug=true', async (
   }
 });
 
-test('onIngestError reports structured diagnostics for 401 and pauses repeated flush attempts', async () => {
+test('permanent 401 failures are reported, dropped, and not retried forever', async () => {
   const calls: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];
   const reportedErrors: AnalyticsIngestError[] = [];
+  const droppedEvents: AnalyticsDropDiagnostic[] = [];
   const originalFetch = globalThis.fetch;
   const originalLocalStorage = globalThis.localStorage;
 
@@ -1385,6 +1437,9 @@ test('onIngestError reports structured diagnostics for 401 and pauses repeated f
     onIngestError: (error) => {
       reportedErrors.push(error);
     },
+    onEventsDropped: (diagnostic) => {
+      droppedEvents.push(diagnostic);
+    },
   });
 
   try {
@@ -1408,8 +1463,13 @@ test('onIngestError reports structured diagnostics for 401 and pauses repeated f
     assert.equal(first.attempts, 1);
     assert.equal(first.maxRetries, 4);
     assert.equal(first.batchSize, 2);
-    assert.equal(first.queueSize, 2);
+    assert.equal(first.queueSize, 0);
     assert.equal(typeof first.timestamp, 'string');
+    assert.equal(droppedEvents.length, 1);
+    assert.equal(droppedEvents[0]?.reason, 'permanent_ingest_error');
+    assert.equal(droppedEvents[0]?.droppedCount, 2);
+    assert.equal(droppedEvents[0]?.status, 401);
+    assert.equal(droppedEvents[0]?.requestId, 'req_401_test');
   } finally {
     client.shutdown();
     globalThis.fetch = originalFetch;
@@ -2809,18 +2869,29 @@ test('storage adapter errors never crash the host app', async () => {
 
 test('invalid event names are dropped without throwing', async () => {
   await withMockedGlobals(async (calls) => {
+    const droppedEvents: AnalyticsDropDiagnostic[] = [];
     const client = init({
       apiKey: 'pi_live_test',
       endpoint: 'https://collector.analyticscli.com',
       batchSize: 20,
       flushIntervalMs: 60_000,
       maxRetries: 0,
+      onEventsDropped: (diagnostic) => {
+        droppedEvents.push(diagnostic);
+      },
     });
 
     try {
       client.track('invalid event');
       await client.flush();
-      assert.equal(calls.length, 0);
+      assert.equal(calls.length, 1);
+      const payload = JSON.parse(String(calls[0]?.init?.body)) as {
+        events: Array<{ eventName: string }>;
+      };
+      assert.deepEqual(payload.events.map((event) => event.eventName), ['session_start']);
+      assert.equal(droppedEvents.length, 1);
+      assert.equal(droppedEvents[0]?.reason, 'invalid_event');
+      assert.deepEqual(droppedEvents[0]?.eventNames, ['invalid event']);
     } finally {
       client.shutdown();
     }
