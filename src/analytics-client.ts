@@ -12,6 +12,7 @@ import { validateIngestBatch, type IngestBatch } from './ingest-validation.js';
 import {
   DEFAULT_COLLECTOR_ENDPOINT,
   DEFAULT_COOKIE_MAX_AGE_SECONDS,
+  FEEDBACK_MESSAGE_MAX_LENGTH,
   DEFAULT_SCREEN_VIEW_DEDUPE_WINDOW_MS,
   DEFAULT_SESSION_TIMEOUT_MS,
   DEVICE_ID_KEY,
@@ -897,6 +898,11 @@ export class AnalyticsClient {
     if (!message) {
       throw new Error('Feedback message must not be empty.');
     }
+    if (message.length > FEEDBACK_MESSAGE_MAX_LENGTH) {
+      throw new Error(
+        `Feedback message must not exceed ${FEEDBACK_MESSAGE_MAX_LENGTH} characters.`,
+      );
+    }
 
     const config = this.feedbackConfig;
     const locationId =
@@ -1000,10 +1006,28 @@ export class AnalyticsClient {
 
       if (!response.ok) {
         const errorPayload = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+        const nestedError =
+          errorPayload.error &&
+          typeof errorPayload.error === 'object' &&
+          !Array.isArray(errorPayload.error)
+            ? (errorPayload.error as Record<string, unknown>)
+            : null;
+        const details =
+          nestedError?.details &&
+          typeof nestedError.details === 'object' &&
+          !Array.isArray(nestedError.details)
+            ? (nestedError.details as Record<string, unknown>)
+            : null;
+        const issues = Array.isArray(details?.issues) ? details.issues : [];
+        const firstIssue =
+          issues[0] && typeof issues[0] === 'object' && !Array.isArray(issues[0])
+            ? (issues[0] as Record<string, unknown>)
+            : null;
         const errorMessage =
-          typeof errorPayload.error === 'string'
-            ? errorPayload.error
-            : `Feedback submission failed with status ${response.status}`;
+          (typeof firstIssue?.message === 'string' && firstIssue.message) ||
+          (typeof nestedError?.message === 'string' && nestedError.message) ||
+          (typeof errorPayload.error === 'string' && errorPayload.error) ||
+          `Feedback submission failed with status ${response.status}`;
         throw new Error(errorMessage);
       }
 

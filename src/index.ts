@@ -11,6 +11,11 @@ export {
   PURCHASE_SUCCESS_EVENT_CANDIDATES,
 } from './sdk-contract.js';
 
+export {
+  FEEDBACK_MESSAGE_MIN_LENGTH,
+  FEEDBACK_MESSAGE_MAX_LENGTH,
+} from './constants.js';
+
 export type {
   OnboardingEventName,
   PaywallEventName,

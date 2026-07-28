@@ -5,5 +5,7 @@ export const SESSION_EVENT_SEQ_PREFIX = 'pi_session_event_seq:';
 export const ONBOARDING_STEP_VIEW_STATE_KEY = 'pi_onboarding_step_views';
 export const DEFAULT_SESSION_TIMEOUT_MS = 30 * 60 * 1000;
 export const DEFAULT_SCREEN_VIEW_DEDUPE_WINDOW_MS = 1200;
+export const FEEDBACK_MESSAGE_MIN_LENGTH = 1;
+export const FEEDBACK_MESSAGE_MAX_LENGTH = 4_000;
 export const DEFAULT_COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 400;
 export const DEFAULT_COLLECTOR_ENDPOINT = 'https://collector.analyticscli.com';

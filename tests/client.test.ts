@@ -2691,6 +2691,70 @@ test('submitFeedback() falls back to analytics-only mode when no feedback key is
   });
 });
 
+test('submitFeedback() accepts short non-empty messages', async () => {
+  await withMockedGlobals(async (calls) => {
+    const client = init({
+      apiKey: 'pi_live_test',
+      feedback: {
+        serviceUrl: 'https://api.analyticscli.com',
+      },
+    });
+
+    try {
+      const result = await client.submitFeedback({
+        message: 'test',
+        locationId: 'settings/feedback',
+      });
+
+      assert.equal(result.delivery, 'external_feedback_service');
+      const payload = JSON.parse(String(calls[0]?.init?.body)) as { feedback?: string };
+      assert.equal(payload.feedback, 'test');
+    } finally {
+      client.shutdown();
+    }
+  });
+});
+
+test('submitFeedback() surfaces structured API validation messages', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () =>
+    new Response(
+      JSON.stringify({
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Invalid feedback payload',
+          details: {
+            issues: [{ message: 'Feedback message is invalid.' }],
+          },
+        },
+      }),
+      {
+        status: 400,
+        headers: { 'content-type': 'application/json' },
+      },
+    )) as typeof globalThis.fetch;
+
+  const client = init({
+    apiKey: 'pi_live_test',
+    feedback: {
+      serviceUrl: 'https://api.analyticscli.com',
+    },
+  });
+
+  try {
+    await assert.rejects(
+      client.submitFeedback({
+        message: 'test',
+        locationId: 'settings/feedback',
+      }),
+      /Feedback message is invalid\./,
+    );
+  } finally {
+    client.shutdown();
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('initAsync() ignores persisted ids from async storage adapters in strict-only mode', async () => {
   await withMockedGlobals(async (calls) => {
     const now = Date.now();
